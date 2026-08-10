@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-
 import { useNavigate, useParams } from "react-router-dom";
 
 import useSellers from "../hooks/useSellers.js";
@@ -9,7 +8,20 @@ import usePayments from "../hooks/usePayments.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
 
 /* =========================================================
-   Helpers
+   CONSTANTS
+========================================================= */
+
+const KHATABOOK_SOURCE = "KHATABOOK";
+
+const PAYMENT_METHODS = {
+  cash: "Cash",
+  upi: "UPI",
+  netbanking: "Net Banking",
+  other: "Other",
+};
+
+/* =========================================================
+   HELPERS
 ========================================================= */
 
 const formatCurrency = (value) => {
@@ -34,16 +46,111 @@ const formatDate = (value) => {
   });
 };
 
+/*
+ * Return the date used by a sale.
+ */
 const getSaleDate = (sale) => {
-  return sale?.saleDate || sale?.purchaseDate || sale?.createdAt || null;
+  return sale?.saleDate || sale?.createdAt || null;
 };
 
+/*
+ * Return the date used by a payment.
+ */
 const getPaymentDate = (payment) => {
-  return payment?.paymentDate || payment?.date || payment?.createdAt || null;
+  return payment?.paymentDate || payment?.createdAt || null;
+};
+
+/*
+ * Convert a backend date into YYYY-MM-DD
+ * using the user's local timezone.
+ */
+const getLocalDateString = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+};
+
+/*
+ * Safely get the timestamp used for ordering.
+ *
+ * Important:
+ *
+ * 1. First use the actual transaction date.
+ * 2. If two transactions have the same date,
+ *    use createdAt as the tie breaker.
+ *
+ * This is important when two payments happen
+ * on the same day.
+ */
+const getEntryTimestamp = (entry) => {
+  const transactionDate = entry?.date ? new Date(entry.date).getTime() : 0;
+
+  if (Number.isFinite(transactionDate) && transactionDate > 0) {
+    return transactionDate;
+  }
+
+  const createdAt = entry?.raw?.createdAt
+    ? new Date(entry.raw.createdAt).getTime()
+    : 0;
+
+  if (Number.isFinite(createdAt) && createdAt > 0) {
+    return createdAt;
+  }
+
+  return 0;
+};
+
+/*
+ * Get the creation timestamp.
+ *
+ * This is used when two transactions have exactly
+ * the same payment/sale date.
+ */
+const getCreatedTimestamp = (entry) => {
+  const createdAt = entry?.raw?.createdAt
+    ? new Date(entry.raw.createdAt).getTime()
+    : 0;
+
+  return Number.isFinite(createdAt) ? createdAt : 0;
+};
+
+/*
+ * Create a local Date from YYYY-MM-DD.
+ *
+ * This avoids UTC date conversion problems.
+ */
+const createLocalDate = (dateString, endOfDay = false) => {
+  if (!dateString) {
+    return null;
+  }
+
+  const [year, month, day] = dateString.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  if (endOfDay) {
+    return new Date(year, month - 1, day, 23, 59, 59, 999);
+  }
+
+  return new Date(year, month - 1, day, 0, 0, 0, 0);
 };
 
 /* =========================================================
-   Component
+   COMPONENT
 ========================================================= */
 
 function KhatabookSeller() {
@@ -52,16 +159,13 @@ function KhatabookSeller() {
   const { sellerId } = useParams();
 
   /* =======================================================
-     Authentication
-
-     We DO NOT modify AuthContext.
-     We only wait for it to finish.
+     AUTHENTICATION
   ======================================================= */
 
   const { accessToken, loading: authLoading } = useAuth();
 
   /* =======================================================
-     Hooks
+     SELLERS
   ======================================================= */
 
   const {
@@ -71,6 +175,10 @@ function KhatabookSeller() {
     loadSellers,
   } = useSellers();
 
+  /* =======================================================
+     SALES
+  ======================================================= */
+
   const {
     sales,
     loading: salesLoading,
@@ -78,9 +186,12 @@ function KhatabookSeller() {
     fetchSales,
   } = useSales();
 
+  /* =======================================================
+     PAYMENTS
+  ======================================================= */
+
   const {
     payments,
-    account,
     loading: paymentsLoading,
     saving,
     error: paymentsError,
@@ -91,7 +202,7 @@ function KhatabookSeller() {
   } = usePayments();
 
   /* =======================================================
-     UI State
+     PAYMENT FORM STATE
   ======================================================= */
 
   const [showPaymentForm, setShowPaymentForm] = useState(false);
@@ -106,6 +217,8 @@ function KhatabookSeller() {
     new Date().toISOString().split("T")[0],
   );
 
+  const [paymentReference, setPaymentReference] = useState("");
+
   const [paymentNote, setPaymentNote] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
@@ -113,7 +226,17 @@ function KhatabookSeller() {
   const [actionError, setActionError] = useState("");
 
   /* =======================================================
-     Find Seller
+     LEDGER FILTER STATE
+  ======================================================= */
+
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const [fromDate, setFromDate] = useState("");
+
+  const [toDate, setToDate] = useState("");
+
+  /* =======================================================
+     FIND SELLER
   ======================================================= */
 
   const seller = useMemo(() => {
@@ -129,11 +252,7 @@ function KhatabookSeller() {
   }, [sellers, sellerId]);
 
   /* =======================================================
-     Load Seller Data
-
-     IMPORTANT:
-     Do NOT make API requests until AuthProvider
-     has finished restoring the token.
+     LOAD SELLER DATA
   ======================================================= */
 
   const loadSellerData = useCallback(async () => {
@@ -148,14 +267,6 @@ function KhatabookSeller() {
     if (!accessToken) {
       return;
     }
-
-    /*
-     * These functions now also check authentication.
-     *
-     * We intentionally run them sequentially here.
-     * This avoids a burst of requests while the
-     * authentication session is being restored.
-     */
 
     await loadSellers();
 
@@ -180,7 +291,7 @@ function KhatabookSeller() {
   }, [authLoading, accessToken, loadSellerData]);
 
   /* =======================================================
-     Seller Sales
+     SELLER SALES
   ======================================================= */
 
   const sellerSales = useMemo(() => {
@@ -195,13 +306,25 @@ function KhatabookSeller() {
 
         return String(saleSellerId) === String(sellerId);
       })
-      .sort(
-        (a, b) => new Date(getSaleDate(b) || 0) - new Date(getSaleDate(a) || 0),
-      );
+      .sort((a, b) => {
+        const dateA = new Date(getSaleDate(a) || 0).getTime();
+
+        const dateB = new Date(getSaleDate(b) || 0).getTime();
+
+        if (dateB !== dateA) {
+          return dateB - dateA;
+        }
+
+        const createdA = new Date(a?.createdAt || 0).getTime();
+
+        const createdB = new Date(b?.createdAt || 0).getTime();
+
+        return createdB - createdA;
+      });
   }, [sales, sellerId]);
 
   /* =======================================================
-     Seller Payments
+     KHATABOOK PAYMENTS ONLY
   ======================================================= */
 
   const sellerPayments = useMemo(() => {
@@ -209,27 +332,48 @@ function KhatabookSeller() {
       return [];
     }
 
-    return [...payments].sort(
-      (a, b) =>
-        new Date(getPaymentDate(b) || 0) - new Date(getPaymentDate(a) || 0),
-    );
+    return payments
+      .filter((payment) => payment?.source === KHATABOOK_SOURCE)
+      .sort((a, b) => {
+        const dateA = new Date(getPaymentDate(a) || 0).getTime();
+
+        const dateB = new Date(getPaymentDate(b) || 0).getTime();
+
+        if (dateB !== dateA) {
+          return dateB - dateA;
+        }
+
+        const createdA = new Date(a?.createdAt || 0).getTime();
+
+        const createdB = new Date(b?.createdAt || 0).getTime();
+
+        return createdB - createdA;
+      });
   }, [payments]);
 
   /* =======================================================
-     Local Account Calculation
+     ACCOUNT CALCULATION
   ======================================================= */
 
-  const calculatedAccount = useMemo(() => {
+  const displayAccount = useMemo(() => {
     const totalSaleValue = sellerSales.reduce(
       (total, sale) => total + (Number(sale?.grandTotal) || 0),
       0,
     );
 
+    /*
+     * Amount already received while making
+     * the original sale.
+     */
     const salePayments = sellerSales.reduce(
       (total, sale) => total + (Number(sale?.paidAmount) || 0),
       0,
     );
 
+    /*
+     * Payments created from the Khatabook
+     * Add Payment section only.
+     */
     const khatabookPayments = sellerPayments.reduce(
       (total, payment) => total + (Number(payment?.amount) || 0),
       0,
@@ -255,26 +399,7 @@ function KhatabookSeller() {
   }, [sellerSales, sellerPayments]);
 
   /* =======================================================
-     Display Account
-
-     IMPORTANT:
-     This page uses the local calculation as the single
-     source of truth. The backend account response is not
-     used for the displayed totals because it can represent
-     sale-time payments and Khatabook payments together.
-
-     Correct calculation:
-
-     Total Sale Value
-       - Amount Paid During Sale
-       - Later Khatabook Payments
-       = Outstanding
-  ======================================================= */
-
-  const displayAccount = calculatedAccount;
-
-  /* =======================================================
-     Payment Date
+     PAYMENT DATE VALUE
   ======================================================= */
 
   const paymentDateValue = useCallback((payment) => {
@@ -290,11 +415,11 @@ function KhatabookSeller() {
       return new Date().toISOString().split("T")[0];
     }
 
-    return date.toISOString().split("T")[0];
+    return getLocalDateString(date);
   }, []);
 
   /* =======================================================
-     Reset Payment Form
+     RESET PAYMENT FORM
   ======================================================= */
 
   const resetPaymentForm = useCallback(() => {
@@ -303,6 +428,8 @@ function KhatabookSeller() {
     setPaymentMethod("cash");
 
     setPaymentDate(new Date().toISOString().split("T")[0]);
+
+    setPaymentReference("");
 
     setPaymentNote("");
 
@@ -314,7 +441,7 @@ function KhatabookSeller() {
   }, []);
 
   /* =======================================================
-     Open Add Payment
+     OPEN ADD PAYMENT
   ======================================================= */
 
   const openAddPayment = useCallback(() => {
@@ -326,6 +453,8 @@ function KhatabookSeller() {
 
     setPaymentDate(new Date().toISOString().split("T")[0]);
 
+    setPaymentReference("");
+
     setPaymentNote("");
 
     setActionError("");
@@ -334,7 +463,7 @@ function KhatabookSeller() {
   }, []);
 
   /* =======================================================
-     Open Edit Payment
+     OPEN EDIT PAYMENT
   ======================================================= */
 
   const openEditPayment = useCallback(
@@ -343,11 +472,20 @@ function KhatabookSeller() {
 
       setPaymentAmount(String(payment?.amount || ""));
 
-      setPaymentMethod(payment?.paymentMethod || payment?.method || "cash");
+      const backendMethod = payment?.paymentMethod || "Cash";
+
+      const frontendMethod =
+        Object.entries(PAYMENT_METHODS).find(
+          ([, value]) => value === backendMethod,
+        )?.[0] || "other";
+
+      setPaymentMethod(frontendMethod);
 
       setPaymentDate(paymentDateValue(payment));
 
-      setPaymentNote(payment?.note || payment?.remarks || "");
+      setPaymentReference(payment?.referenceNumber || "");
+
+      setPaymentNote(payment?.note || "");
 
       setActionError("");
 
@@ -357,7 +495,7 @@ function KhatabookSeller() {
   );
 
   /* =======================================================
-     Submit Payment
+     SUBMIT PAYMENT
   ======================================================= */
 
   const handlePaymentSubmit = async (event) => {
@@ -385,19 +523,12 @@ function KhatabookSeller() {
       return;
     }
 
-    /*
-     * For a new payment, the maximum is the current
-     * outstanding balance.
-     *
-     * For an edit, the old payment is temporarily added
-     * back because the new amount replaces the old amount.
-     */
     const existingPaymentAmount = editingPayment
       ? Number(editingPayment?.amount) || 0
       : 0;
 
     const maximumAllowedPayment =
-      Number(displayAccount.outstanding || 0) + existingPaymentAmount;
+      Number(displayAccount.outstanding) + existingPaymentAmount;
 
     if (amount > maximumAllowedPayment) {
       setActionError(
@@ -412,11 +543,19 @@ function KhatabookSeller() {
     try {
       setSubmitting(true);
 
+      const normalizedPaymentMethod = PAYMENT_METHODS[paymentMethod] || "Other";
+
       const paymentData = {
-        seller: sellerId,
+        sellerId,
+
         amount,
-        paymentMethod,
+
+        paymentMethod: normalizedPaymentMethod,
+
         paymentDate,
+
+        referenceNumber: paymentReference.trim(),
+
         note: paymentNote.trim(),
       };
 
@@ -435,15 +574,8 @@ function KhatabookSeller() {
       }
 
       /*
-       * VERY IMPORTANT
-       *
-       * After payment:
-       *
-       * 1. Reload seller account
-       * 2. Reload sales
-       *
-       * Therefore outstanding is recalculated
-       * from fresh server data.
+       * Refresh both datasets so the ledger
+       * and summary always use backend data.
        */
       await fetchPaymentsBySeller(sellerId);
 
@@ -464,10 +596,16 @@ function KhatabookSeller() {
   };
 
   /* =======================================================
-     Delete Payment
+     DELETE PAYMENT
   ======================================================= */
 
   const handleDeletePayment = async (payment) => {
+    if (payment?.source !== KHATABOOK_SOURCE) {
+      setActionError("Only Khatabook payments can be deleted here.");
+
+      return;
+    }
+
     const confirmed = window.confirm(
       "Are you sure you want to delete this payment?",
     );
@@ -502,36 +640,22 @@ function KhatabookSeller() {
   };
 
   /* =======================================================
-     Combined Ledger
-
-     SALE ENTRY
-       Debit  = complete sale value
-       Credit = amount already paid during the sale
-
-     LATER PAYMENT ENTRY
-       Debit  = 0
-       Credit = amount paid later through Khatabook
-
-     Example:
-       Sale = ₹1000
-       Paid during sale = ₹300
-
-       Sale ledger entry:
-         Debit  ₹1000
-         Credit ₹300
-         Balance ₹700
-
-       Later payment = ₹200
-
-       Payment ledger entry:
-         Debit  ₹0
-         Credit ₹200
-         Balance ₹500
+     COMBINED LEDGER
+     
+     IMPORTANT:
+     
+     This creates the ledger in chronological order.
+     
+     We MUST calculate balance from oldest
+     transaction to newest transaction.
+     
+     The UI will reverse this later.
   ======================================================= */
 
-  const ledger = useMemo(() => {
+  const chronologicalLedger = useMemo(() => {
     const saleEntries = sellerSales.map((sale) => {
       const saleAmount = Number(sale?.grandTotal) || 0;
+
       const paidDuringSale = Number(sale?.paidAmount) || 0;
 
       return {
@@ -541,21 +665,33 @@ function KhatabookSeller() {
 
         date: getSaleDate(sale),
 
-        reference: sale?.invoiceNumber || sale?.saleNumber || sale?._id,
+        reference: sale?.saleNumber || sale?._id,
 
         description: sale?.items?.length
           ? `${sale.items.length} item${sale.items.length !== 1 ? "s" : ""}`
           : "Sale",
 
-        debit: saleAmount,
+        debit: Math.max(saleAmount, 0),
 
-        // Amount received at the time of this sale.
+        /*
+         * IMPORTANT:
+         *
+         * Payment made while creating
+         * the sale is credit here.
+         *
+         * It is NOT also treated as a
+         * Khatabook Payment.
+         */
         credit: Math.min(Math.max(paidDuringSale, 0), Math.max(saleAmount, 0)),
 
         raw: sale,
       };
     });
 
+    /*
+     * Only KHATABOOK payments are added
+     * as separate ledger credit entries.
+     */
     const paymentEntries = sellerPayments.map((payment) => {
       const paymentAmount = Number(payment?.amount) || 0;
 
@@ -566,10 +702,9 @@ function KhatabookSeller() {
 
         date: getPaymentDate(payment),
 
-        reference:
-          payment?.paymentNumber || payment?.receiptNumber || payment?._id,
+        reference: payment?.paymentNumber || payment?._id,
 
-        description: payment?.note || payment?.remarks || "Payment received",
+        description: payment?.note || "Payment received",
 
         debit: 0,
 
@@ -579,15 +714,35 @@ function KhatabookSeller() {
       };
     });
 
+    /*
+     * Chronological order:
+     *
+     * oldest -> newest
+     *
+     * First sort by transaction date.
+     * Then createdAt for same-date entries.
+     */
     return [...saleEntries, ...paymentEntries].sort((a, b) => {
-      const dateDifference = new Date(b.date || 0) - new Date(a.date || 0);
+      const timeA = getEntryTimestamp(a);
 
-      if (dateDifference !== 0) {
-        return dateDifference;
+      const timeB = getEntryTimestamp(b);
+
+      if (timeA !== timeB) {
+        return timeA - timeB;
       }
 
-      // For transactions on exactly the same timestamp,
-      // process the sale before the later payment.
+      const createdA = getCreatedTimestamp(a);
+
+      const createdB = getCreatedTimestamp(b);
+
+      if (createdA !== createdB) {
+        return createdA - createdB;
+      }
+
+      /*
+       * If both timestamps are exactly
+       * the same, keep sale before payment.
+       */
       if (a.type === "sale" && b.type === "payment") {
         return -1;
       }
@@ -596,41 +751,26 @@ function KhatabookSeller() {
         return 1;
       }
 
-      return 0;
+      return String(a.id).localeCompare(String(b.id));
     });
   }, [sellerSales, sellerPayments]);
 
   /* =======================================================
-     Running Balance
-
-     Debit increases the seller's outstanding amount.
-     Credit decreases the seller's outstanding amount.
+     RUNNING BALANCE
+     
+     ALWAYS calculate from oldest -> newest.
   ======================================================= */
 
   const ledgerWithBalance = useMemo(() => {
-    const chronological = [...ledger].sort((a, b) => {
-      const dateDifference = new Date(a.date || 0) - new Date(b.date || 0);
-
-      if (dateDifference !== 0) {
-        return dateDifference;
-      }
-
-      if (a.type === "sale" && b.type === "payment") {
-        return -1;
-      }
-
-      if (a.type === "payment" && b.type === "sale") {
-        return 1;
-      }
-
-      return 0;
-    });
-
     let balance = 0;
 
-    const result = chronological.map((entry) => {
+    return chronologicalLedger.map((entry) => {
       balance += Number(entry.debit || 0) - Number(entry.credit || 0);
 
+      /*
+       * Outstanding should never become
+       * negative.
+       */
       balance = Math.max(balance, 0);
 
       return {
@@ -638,25 +778,125 @@ function KhatabookSeller() {
         balance,
       };
     });
-
-    return result.reverse();
-  }, [ledger]);
+  }, [chronologicalLedger]);
 
   /* =======================================================
-     Loading
+     FILTERED LEDGER
+     
+     Search + Date Range
+  ======================================================= */
+
+  const filteredLedger = useMemo(() => {
+    const search = searchTerm.trim().toLowerCase();
+
+    const startDate = createLocalDate(fromDate, false);
+
+    const endDate = createLocalDate(toDate, true);
+
+    /*
+     * If user enters an invalid range,
+     * return no results rather than showing
+     * confusing data.
+     */
+    if (startDate && endDate && startDate > endDate) {
+      return [];
+    }
+
+    const filtered = ledgerWithBalance.filter((entry) => {
+      /*
+       * SEARCH
+       */
+      if (search) {
+        const searchableText = [
+          entry.type,
+          entry.reference,
+          entry.description,
+
+          entry?.raw?.sellerName,
+
+          entry?.raw?.paymentNumber,
+
+          entry?.raw?.saleNumber,
+
+          entry?.raw?.referenceNumber,
+
+          entry?.raw?.note,
+
+          entry.debit,
+          entry.credit,
+          entry.balance,
+        ]
+          .filter((value) => value !== null && value !== undefined)
+          .join(" ")
+          .toLowerCase();
+
+        if (!searchableText.includes(search)) {
+          return false;
+        }
+      }
+
+      /*
+       * DATE RANGE
+       */
+      const entryDate = entry.date ? new Date(entry.date) : null;
+
+      if (entryDate && !Number.isNaN(entryDate.getTime())) {
+        if (startDate && entryDate < startDate) {
+          return false;
+        }
+
+        if (endDate && entryDate > endDate) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    /*
+     * IMPORTANT:
+     *
+     * The balance was calculated above
+     * chronologically.
+     *
+     * Now ONLY reverse the display order.
+     *
+     * Therefore:
+     *
+     * newest -> oldest
+     *
+     * while balance remains correct.
+     */
+    return [...filtered].reverse();
+  }, [ledgerWithBalance, searchTerm, fromDate, toDate]);
+
+  /* =======================================================
+     FILTER ACTIONS
+  ======================================================= */
+
+  const clearFilters = useCallback(() => {
+    setSearchTerm("");
+    setFromDate("");
+    setToDate("");
+  }, []);
+
+  const hasFilters = Boolean(searchTerm.trim() || fromDate || toDate);
+
+  /* =======================================================
+     LOADING
   ======================================================= */
 
   const loading =
     authLoading || sellersLoading || salesLoading || paymentsLoading;
 
   /* =======================================================
-     Error
+     ERROR
   ======================================================= */
 
   const pageError = actionError || sellersError || salesError || paymentsError;
 
   /* =======================================================
-     Authentication Loading
+     AUTH LOADING
   ======================================================= */
 
   if (authLoading) {
@@ -676,7 +916,7 @@ function KhatabookSeller() {
   }
 
   /* =======================================================
-     Not Authenticated
+     NOT AUTHENTICATED
   ======================================================= */
 
   if (!accessToken) {
@@ -706,10 +946,7 @@ function KhatabookSeller() {
   }
 
   /* =======================================================
-     Missing Seller
-
-     Only after authentication + seller loading
-     have finished.
+     SELLER NOT FOUND
   ======================================================= */
 
   if (!loading && !seller && !sellersError && sellerId) {
@@ -739,7 +976,7 @@ function KhatabookSeller() {
   }
 
   /* =======================================================
-     Loading
+     LOADING
   ======================================================= */
 
   if (loading || !seller) {
@@ -759,14 +996,14 @@ function KhatabookSeller() {
   }
 
   /* =======================================================
-     Main UI
+     MAIN UI
   ======================================================= */
 
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-6 md:px-6">
       <div className="mx-auto max-w-7xl">
         {/* =================================================
-            Header
+            HEADER
         ================================================= */}
 
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -805,7 +1042,7 @@ function KhatabookSeller() {
         </div>
 
         {/* =================================================
-            Error
+            ERROR
         ================================================= */}
 
         {pageError && (
@@ -815,7 +1052,7 @@ function KhatabookSeller() {
         )}
 
         {/* =================================================
-            Account Summary
+            ACCOUNT SUMMARY
         ================================================= */}
 
         <div className="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -832,7 +1069,7 @@ function KhatabookSeller() {
 
             <div className="p-5">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Sale Payments
+                Paid During Sale
               </p>
 
               <p className="mt-2 text-2xl font-bold text-slate-900">
@@ -842,7 +1079,7 @@ function KhatabookSeller() {
 
             <div className="p-5">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Later Payments
+                Khatabook Payments
               </p>
 
               <p className="mt-2 text-2xl font-bold text-emerald-600">
@@ -869,7 +1106,7 @@ function KhatabookSeller() {
         </div>
 
         {/* =================================================
-            Payment Form
+            PAYMENT FORM
         ================================================= */}
 
         {showPaymentForm && (
@@ -900,7 +1137,9 @@ function KhatabookSeller() {
             </div>
 
             <form onSubmit={handlePaymentSubmit} className="p-5">
-              <div className="grid gap-4 md:grid-cols-4">
+              <div className="grid gap-4 md:grid-cols-5">
+                {/* Amount */}
+
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-700">
                     Amount
@@ -918,6 +1157,8 @@ function KhatabookSeller() {
                   />
                 </div>
 
+                {/* Method */}
+
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-700">
                     Payment Method
@@ -934,13 +1175,11 @@ function KhatabookSeller() {
 
                     <option value="netbanking">Net Banking</option>
 
-                    <option value="bank">Bank Transfer</option>
-
-                    <option value="cheque">Cheque</option>
-
                     <option value="other">Other</option>
                   </select>
                 </div>
+
+                {/* Date */}
 
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-700">
@@ -955,6 +1194,26 @@ function KhatabookSeller() {
                     required
                   />
                 </div>
+
+                {/* Reference */}
+
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                    Reference
+                  </label>
+
+                  <input
+                    type="text"
+                    value={paymentReference}
+                    onChange={(event) =>
+                      setPaymentReference(event.target.value)
+                    }
+                    placeholder="Optional"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                  />
+                </div>
+
+                {/* Note */}
 
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-700">
@@ -1003,16 +1262,113 @@ function KhatabookSeller() {
         )}
 
         {/* =================================================
-            Ledger
+            LEDGER FILTERS
+        ================================================= */}
+
+        <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex flex-col gap-1">
+            <h2 className="font-semibold text-slate-900">Search & Filter</h2>
+
+            <p className="text-xs text-slate-500">
+              Search transactions or filter the ledger by date range.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-4">
+            {/* Search */}
+
+            <div className="md:col-span-2">
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                Search
+              </label>
+
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Search reference, description, payment..."
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+              />
+            </div>
+
+            {/* From Date */}
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                From Date
+              </label>
+
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(event) => setFromDate(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+              />
+            </div>
+
+            {/* To Date */}
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                To Date
+              </label>
+
+              <input
+                type="date"
+                value={toDate}
+                min={fromDate || undefined}
+                onChange={(event) => setToDate(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-slate-500">
+              Showing{" "}
+              <span className="font-semibold text-slate-700">
+                {filteredLedger.length}
+              </span>{" "}
+              of{" "}
+              <span className="font-semibold text-slate-700">
+                {ledgerWithBalance.length}
+              </span>{" "}
+              transactions
+            </p>
+
+            {hasFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* =================================================
+            LEDGER
         ================================================= */}
 
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-5 py-4">
-            <h2 className="font-semibold text-slate-900">Khatabook Ledger</h2>
+            <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="font-semibold text-slate-900">
+                  Khatabook Ledger
+                </h2>
 
-            <p className="mt-1 text-xs text-slate-500">
-              Complete history of sales and payments.
-            </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Complete history of sales and Khatabook payments.
+                </p>
+              </div>
+
+              <span className="text-xs font-medium text-slate-500">
+                Newest first
+              </span>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -1054,20 +1410,34 @@ function KhatabookSeller() {
               </thead>
 
               <tbody>
-                {ledgerWithBalance.length === 0 ? (
+                {filteredLedger.length === 0 ? (
                   <tr>
                     <td colSpan="8" className="px-4 py-12 text-center">
                       <p className="text-sm font-medium text-slate-600">
-                        No transactions found
+                        {hasFilters
+                          ? "No transactions match your filters"
+                          : "No transactions found"}
                       </p>
 
                       <p className="mt-1 text-xs text-slate-400">
-                        Sales and payments will appear here.
+                        {hasFilters
+                          ? "Try changing the search or date range."
+                          : "Sales and payments will appear here."}
                       </p>
+
+                      {hasFilters && (
+                        <button
+                          type="button"
+                          onClick={clearFilters}
+                          className="mt-4 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          Clear Filters
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ) : (
-                  ledgerWithBalance.map((entry) => (
+                  filteredLedger.map((entry) => (
                     <tr
                       key={entry.id}
                       className="border-b border-slate-100 hover:bg-slate-50"
@@ -1089,7 +1459,7 @@ function KhatabookSeller() {
                       </td>
 
                       <td className="px-4 py-4 text-xs text-slate-500">
-                        {String(entry.reference || "—").slice(0, 18)}
+                        {String(entry.reference || "—").slice(0, 30)}
                       </td>
 
                       <td className="px-4 py-4 text-sm text-slate-700">

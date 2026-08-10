@@ -5,16 +5,58 @@ import Seller from "../models/Seller.js";
 import Sale from "../models/Sale.js";
 
 /* =========================================================
-   Helpers
+   CONSTANTS
+========================================================= */
+
+const ALLOWED_PAYMENT_METHODS = ["Cash", "UPI", "Net Banking", "Other"];
+
+const KHATABOOK_SOURCE = "KHATABOOK";
+
+/* =========================================================
+   HELPERS
 ========================================================= */
 
 /*
- * Generate a readable payment number.
+ * Validate MongoDB ObjectId.
+ */
+const isValidObjectId = (id) => {
+  return mongoose.Types.ObjectId.isValid(id);
+};
+
+/*
+ * Get authenticated user ID.
+ *
+ * Supports both:
+ *
+ * req.user.id
+ *
+ * and:
+ *
+ * req.user._id
+ */
+const getUserId = (req) => {
+  return req.user?._id || req.user?.id;
+};
+
+/*
+ * Convert MongoDB/ObjectId values to
+ * a consistent string.
+ */
+const toIdString = (value) => {
+  return value ? String(value) : "";
+};
+
+/* =========================================================
+   GENERATE PAYMENT NUMBER
+========================================================= */
+
+/*
+ * Generates a readable payment number.
  *
  * Example:
+ *
  * PAY-20260810-0001
  */
-
 const generatePaymentNumber = async () => {
   const date = new Date();
 
@@ -42,79 +84,188 @@ const generatePaymentNumber = async () => {
   if (latestPayment?.paymentNumber) {
     const lastPart = latestPayment.paymentNumber.split("-").pop();
 
-    const parsed = Number(lastPart);
+    const parsedNumber = Number(lastPart);
 
-    if (Number.isFinite(parsed)) {
-      nextNumber = parsed + 1;
+    if (Number.isFinite(parsedNumber)) {
+      nextNumber = parsedNumber + 1;
     }
   }
 
-  return `${prefix}-` + String(nextNumber).padStart(4, "0");
+  return `${prefix}-${String(nextNumber).padStart(4, "0")}`;
 };
 
+/* =========================================================
+   GET SELLER ACCOUNT
+========================================================= */
+
 /*
- * Calculate how much the seller
- * currently owes.
+ * CENTRAL KHATABOOK CALCULATION
  *
- * Outstanding =
- * Total sales - Total payments
+ * ---------------------------------------------------------
+ *
+ * SALE PAYMENT
+ *
+ * Sale.paidAmount
+ *
+ * means:
+ *
+ * Money received while creating
+ * the original sale.
+ *
+ * ---------------------------------------------------------
+ *
+ * KHATABOOK PAYMENT
+ *
+ * Payment.amount
+ *
+ * with:
+ *
+ * source = "KHATABOOK"
+ *
+ * means:
+ *
+ * Money received later through
+ * the Khatabook Add Payment section.
+ *
+ * ---------------------------------------------------------
+ *
+ * IMPORTANT:
+ *
+ * We NEVER count every Payment document.
+ *
+ * We count ONLY:
+ *
+ * source = "KHATABOOK"
+ *
+ * ---------------------------------------------------------
+ *
+ * Formula:
+ *
+ * Total Sales
+ *       -
+ * Sale Payments
+ *       -
+ * Khatabook Payments
+ *       =
+ * Outstanding
+ *
+ * ---------------------------------------------------------
  */
 
-const getSellerOutstanding = async ({ userId, sellerId, session = null }) => {
-  const saleQuery = Sale.find({
-    user: userId,
-    seller: sellerId,
-  }).select("grandTotal paidAmount");
+const getSellerAccount = async ({ userId, sellerId, session = null }) => {
+  /* =======================================================
+     SALES
+  ======================================================= */
 
-  const paymentQuery = Payment.find({
+  let saleQuery = Sale.find({
     user: userId,
     seller: sellerId,
+  }).select("grandTotal paidAmount creditAmount");
+
+  /* =======================================================
+     KHATABOOK PAYMENTS ONLY
+  ======================================================= */
+
+  let paymentQuery = Payment.find({
+    user: userId,
+
+    seller: sellerId,
+
+    /*
+     * THIS IS THE IMPORTANT FIX.
+     *
+     * Old/incorrect Payment records
+     * will not be included.
+     */
+    source: KHATABOOK_SOURCE,
   }).select("amount");
 
+  /* =======================================================
+     TRANSACTION SESSION
+  ======================================================= */
+
   if (session) {
-    saleQuery.session(session);
-    paymentQuery.session(session);
+    saleQuery = saleQuery.session(session);
+
+    paymentQuery = paymentQuery.session(session);
   }
 
-  const [sales, payments] = await Promise.all([
+  /* =======================================================
+     FETCH BOTH
+  ======================================================= */
+
+  const [sales, khatabookPaymentsList] = await Promise.all([
     saleQuery.lean(),
+
     paymentQuery.lean(),
   ]);
 
-  const totalSales = sales.reduce(
-    (total, sale) => total + (Number(sale.grandTotal) || 0),
-    0,
-  );
+  /* =======================================================
+     TOTAL SALES
+  ======================================================= */
+
+  const totalSales = sales.reduce((total, sale) => {
+    return total + (Number(sale.grandTotal) || 0);
+  }, 0);
+
+  /* =======================================================
+     SALE PAYMENTS
+  ======================================================= */
 
   /*
-   * Payments made while creating
-   * a sale are already stored in
-   * sale.paidAmount.
+   * This is money received during
+   * the original sale.
+   *
+   * IMPORTANT:
+   *
+   * It is NOT coming from Payment.
    */
 
-  const salePayments = sales.reduce(
-    (total, sale) => total + (Number(sale.paidAmount) || 0),
-    0,
-  );
+  const salePayments = sales.reduce((total, sale) => {
+    return total + (Number(sale.paidAmount) || 0);
+  }, 0);
+
+  /* =======================================================
+     KHATABOOK PAYMENTS
+  ======================================================= */
 
   /*
-   * Separate Khatabook payments.
+   * Only Payment documents with:
+   *
+   * source = KHATABOOK
+   *
+   * are included.
    */
 
-  const khatabookPayments = payments.reduce(
-    (total, payment) => total + (Number(payment.amount) || 0),
-    0,
-  );
+  const khatabookPayments = khatabookPaymentsList.reduce((total, payment) => {
+    return total + (Number(payment.amount) || 0);
+  }, 0);
+
+  /* =======================================================
+     TOTAL PAID
+  ======================================================= */
 
   const totalPaid = salePayments + khatabookPayments;
 
+  /* =======================================================
+     OUTSTANDING
+  ======================================================= */
+
   const outstanding = Math.max(totalSales - totalPaid, 0);
+
+  /* =======================================================
+     RETURN
+  ======================================================= */
 
   return {
     totalSales,
+
     salePayments,
+
     khatabookPayments,
+
     totalPaid,
+
     outstanding,
   };
 };
@@ -123,10 +274,28 @@ const getSellerOutstanding = async ({ userId, sellerId, session = null }) => {
    CREATE PAYMENT
 ========================================================= */
 
+/*
+ * THIS ENDPOINT IS ONLY FOR:
+ *
+ * Khatabook → Add Payment
+ *
+ * It creates:
+ *
+ * Payment
+ * source = KHATABOOK
+ *
+ * It MUST NOT be called from
+ * the Sale creation flow.
+ */
+
 export const createPayment = async (req, res, next) => {
   const session = await mongoose.startSession();
 
   try {
+    /* =====================================================
+       REQUEST DATA
+    ===================================================== */
+
     const {
       sellerId,
       paymentDate,
@@ -136,11 +305,11 @@ export const createPayment = async (req, res, next) => {
       referenceNumber,
     } = req.body;
 
-    /* -----------------------------------------------------
-         User
-      ----------------------------------------------------- */
+    /* =====================================================
+       USER
+    ===================================================== */
 
-    const userId = req.user?._id || req.user?.id;
+    const userId = getUserId(req);
 
     if (!userId) {
       return res.status(401).json({
@@ -148,25 +317,25 @@ export const createPayment = async (req, res, next) => {
       });
     }
 
-    /* -----------------------------------------------------
-         Seller
-      ----------------------------------------------------- */
+    /* =====================================================
+       SELLER ID
+    ===================================================== */
 
     if (!sellerId) {
       return res.status(400).json({
-        message: "Valid seller is required",
+        message: "Seller is required",
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(sellerId)) {
+    if (!isValidObjectId(sellerId)) {
       return res.status(400).json({
         message: "Invalid seller ID",
       });
     }
 
-    /* -----------------------------------------------------
-         Amount
-      ----------------------------------------------------- */
+    /* =====================================================
+       AMOUNT
+    ===================================================== */
 
     const paymentAmount = Number(amount);
 
@@ -176,24 +345,45 @@ export const createPayment = async (req, res, next) => {
       });
     }
 
-    /* -----------------------------------------------------
-         Payment Method
-      ----------------------------------------------------- */
+    /* =====================================================
+       PAYMENT METHOD
+    ===================================================== */
 
-    const allowedMethods = ["Cash", "UPI", "Net Banking", "Other"];
-
-    if (!allowedMethods.includes(paymentMethod)) {
+    if (!ALLOWED_PAYMENT_METHODS.includes(paymentMethod)) {
       return res.status(400).json({
         message: "Invalid payment method",
       });
     }
 
-    /* -----------------------------------------------------
-         Seller
-      ----------------------------------------------------- */
+    /* =====================================================
+       PAYMENT DATE
+    ===================================================== */
+
+    let finalPaymentDate;
+
+    if (
+      paymentDate !== undefined &&
+      paymentDate !== null &&
+      paymentDate !== ""
+    ) {
+      finalPaymentDate = new Date(paymentDate);
+
+      if (Number.isNaN(finalPaymentDate.getTime())) {
+        return res.status(400).json({
+          message: "Invalid payment date",
+        });
+      }
+    } else {
+      finalPaymentDate = new Date();
+    }
+
+    /* =====================================================
+       SELLER OWNERSHIP
+    ===================================================== */
 
     const seller = await Seller.findOne({
       _id: sellerId,
+
       user: userId,
     }).lean();
 
@@ -203,57 +393,66 @@ export const createPayment = async (req, res, next) => {
       });
     }
 
-    /* -----------------------------------------------------
-         Calculate Current Outstanding
-      ----------------------------------------------------- */
-
-    const account = await getSellerOutstanding({
-      userId,
-      sellerId,
-    });
-
-    if (account.outstanding <= 0) {
-      return res.status(400).json({
-        message: "This seller has no outstanding balance",
-        outstanding: 0,
-      });
-    }
-
-    /*
-     * Do not allow a payment larger
-     * than the outstanding amount.
-     */
-
-    if (paymentAmount > account.outstanding) {
-      return res.status(400).json({
-        message: `Payment cannot be greater than the outstanding balance of ₹${account.outstanding.toFixed(
-          2,
-        )}`,
-        outstanding: account.outstanding,
-      });
-    }
-
-    /* -----------------------------------------------------
-         Generate Payment Number
-      ----------------------------------------------------- */
-
-    let paymentNumber;
-
-    /*
-     * Payment number generation is
-     * kept outside the transaction because
-     * it does not change financial data.
-     */
-
-    paymentNumber = await generatePaymentNumber();
-
-    /* -----------------------------------------------------
-         Create Payment
-      ----------------------------------------------------- */
-
-    let createdPayment;
+    /* =====================================================
+       START TRANSACTION
+    ===================================================== */
 
     session.startTransaction();
+
+    /* =====================================================
+       CURRENT ACCOUNT
+    ===================================================== */
+
+    const account = await getSellerAccount({
+      userId,
+
+      sellerId,
+
+      session,
+    });
+
+    /* =====================================================
+       OUTSTANDING CHECK
+    ===================================================== */
+
+    if (account.outstanding <= 0) {
+      throw new Error("This seller has no outstanding balance");
+    }
+
+    /* =====================================================
+       PAYMENT CANNOT EXCEED OUTSTANDING
+    ===================================================== */
+
+    if (paymentAmount > account.outstanding) {
+      throw new Error(
+        `Payment cannot be greater than the outstanding balance of ₹${account.outstanding.toFixed(
+          2,
+        )}`,
+      );
+    }
+
+    /* =====================================================
+       PAYMENT NUMBER
+    ===================================================== */
+
+    const paymentNumber = await generatePaymentNumber();
+
+    /* =====================================================
+       NOTE
+    ===================================================== */
+
+    const finalNote = typeof note === "string" ? note.trim() : "";
+
+    /* =====================================================
+       REFERENCE NUMBER
+    ===================================================== */
+
+    const finalReferenceNumber =
+      typeof referenceNumber === "string" ? referenceNumber.trim() : "";
+
+    /* =====================================================
+       CREATE KHATABOOK PAYMENT
+    ===================================================== */
 
     const payment = new Payment({
       user: userId,
@@ -264,37 +463,50 @@ export const createPayment = async (req, res, next) => {
 
       paymentNumber,
 
-      paymentDate: paymentDate || new Date(),
+      /*
+       * CRITICAL:
+       *
+       * This payment came from
+       * Khatabook → Add Payment.
+       */
+      source: KHATABOOK_SOURCE,
+
+      paymentDate: finalPaymentDate,
 
       amount: paymentAmount,
 
       paymentMethod,
 
-      note: note?.trim() || "",
+      note: finalNote,
 
-      referenceNumber: referenceNumber?.trim() || "",
+      referenceNumber: finalReferenceNumber,
     });
 
-    const savedPayments = await payment.save({
+    const createdPayment = await payment.save({
       session,
     });
 
-    createdPayment = savedPayments;
+    /* =====================================================
+       RECALCULATE ACCOUNT
+    ===================================================== */
+
+    const updatedAccount = await getSellerAccount({
+      userId,
+
+      sellerId,
+
+      session,
+    });
+
+    /* =====================================================
+       COMMIT
+    ===================================================== */
 
     await session.commitTransaction();
 
-    /* -----------------------------------------------------
-         Calculate New Balance
-      ----------------------------------------------------- */
-
-    const updatedAccount = await getSellerOutstanding({
-      userId,
-      sellerId,
-    });
-
-    /* -----------------------------------------------------
-         Response
-      ----------------------------------------------------- */
+    /* =====================================================
+       RESPONSE
+    ===================================================== */
 
     return res.status(201).json({
       message: "Payment recorded successfully",
@@ -304,33 +516,50 @@ export const createPayment = async (req, res, next) => {
       account: {
         totalSales: updatedAccount.totalSales,
 
+        salePayments: updatedAccount.salePayments,
+
+        khatabookPayments: updatedAccount.khatabookPayments,
+
         totalPaid: updatedAccount.totalPaid,
 
         outstanding: updatedAccount.outstanding,
       },
     });
   } catch (error) {
-    try {
+    /* =====================================================
+       ROLLBACK
+    ===================================================== */
+
+    if (session.inTransaction()) {
       await session.abortTransaction();
-    } catch {
-      // Transaction may already be closed.
     }
 
     console.error("Create payment error:", error);
 
-    next(error);
+    return res.status(400).json({
+      message: error.message || "Unable to create payment",
+    });
   } finally {
     await session.endSession();
   }
 };
 
 /* =========================================================
-   GET ALL PAYMENTS
+   GET ALL KHATABOOK PAYMENTS
 ========================================================= */
+
+/*
+ * We return ONLY genuine Khatabook
+ * payments.
+ *
+ * Old Payment records created by
+ * the previous incorrect logic are
+ * excluded.
+ */
 
 export const getPayments = async (req, res, next) => {
   try {
-    const userId = req.user?._id || req.user?.id;
+    const userId = getUserId(req);
 
     if (!userId) {
       return res.status(401).json({
@@ -340,16 +569,22 @@ export const getPayments = async (req, res, next) => {
 
     const { sellerId, startDate, endDate } = req.query;
 
+    /* =====================================================
+       BASE FILTER
+    ===================================================== */
+
     const filter = {
       user: userId,
+
+      source: KHATABOOK_SOURCE,
     };
 
-    /* -----------------------------------------------------
-         Seller Filter
-      ----------------------------------------------------- */
+    /* =====================================================
+       SELLER FILTER
+    ===================================================== */
 
     if (sellerId) {
-      if (!mongoose.Types.ObjectId.isValid(sellerId)) {
+      if (!isValidObjectId(sellerId)) {
         return res.status(400).json({
           message: "Invalid seller ID",
         });
@@ -358,9 +593,9 @@ export const getPayments = async (req, res, next) => {
       filter.seller = sellerId;
     }
 
-    /* -----------------------------------------------------
-         Date Filter
-      ----------------------------------------------------- */
+    /* =====================================================
+       DATE FILTER
+    ===================================================== */
 
     if (startDate || endDate) {
       filter.paymentDate = {};
@@ -394,14 +629,15 @@ export const getPayments = async (req, res, next) => {
       }
     }
 
-    /* -----------------------------------------------------
-         Query
-      ----------------------------------------------------- */
+    /* =====================================================
+       FETCH
+    ===================================================== */
 
     const payments = await Payment.find(filter)
-      .populate("seller", "shopName phone city")
+      .populate("seller", "shopName phone city address")
       .sort({
         paymentDate: -1,
+
         createdAt: -1,
       });
 
@@ -421,7 +657,7 @@ export const getPayments = async (req, res, next) => {
 
 export const getPaymentById = async (req, res, next) => {
   try {
-    const userId = req.user?._id || req.user?.id;
+    const userId = getUserId(req);
 
     const { id } = req.params;
 
@@ -431,7 +667,7 @@ export const getPaymentById = async (req, res, next) => {
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (!isValidObjectId(id)) {
       return res.status(400).json({
         message: "Invalid payment ID",
       });
@@ -439,12 +675,20 @@ export const getPaymentById = async (req, res, next) => {
 
     const payment = await Payment.findOne({
       _id: id,
+
       user: userId,
-    }).populate("seller", "shopName phone city");
+
+      /*
+       * Only genuine Khatabook
+       * payments are accessible
+       * through this API.
+       */
+      source: KHATABOOK_SOURCE,
+    }).populate("seller", "shopName phone city address");
 
     if (!payment) {
       return res.status(404).json({
-        message: "Payment not found",
+        message: "Khatabook payment not found",
       });
     }
 
@@ -452,7 +696,7 @@ export const getPaymentById = async (req, res, next) => {
       payment,
     });
   } catch (error) {
-    console.error("Get payment error:", error);
+    console.error("Get payment by ID error:", error);
 
     next(error);
   }
@@ -464,9 +708,13 @@ export const getPaymentById = async (req, res, next) => {
 
 export const getPaymentsBySeller = async (req, res, next) => {
   try {
-    const userId = req.user?._id || req.user?.id;
+    const userId = getUserId(req);
 
     const { sellerId } = req.params;
+
+    /* ===================================================
+         USER
+      =================================================== */
 
     if (!userId) {
       return res.status(401).json({
@@ -474,18 +722,23 @@ export const getPaymentsBySeller = async (req, res, next) => {
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(sellerId)) {
+    /* ===================================================
+         SELLER ID
+      =================================================== */
+
+    if (!isValidObjectId(sellerId)) {
       return res.status(400).json({
         message: "Invalid seller ID",
       });
     }
 
-    /* -----------------------------------------------------
-         Verify Seller
-      ----------------------------------------------------- */
+    /* ===================================================
+         SELLER OWNERSHIP
+      =================================================== */
 
     const seller = await Seller.findOne({
       _id: sellerId,
+
       user: userId,
     }).lean();
 
@@ -495,31 +748,49 @@ export const getPaymentsBySeller = async (req, res, next) => {
       });
     }
 
-    /* -----------------------------------------------------
-         Payments
-      ----------------------------------------------------- */
+    /* ===================================================
+         KHATABOOK PAYMENTS ONLY
+      =================================================== */
 
     const payments = await Payment.find({
       user: userId,
+
       seller: sellerId,
-    }).sort({
-      paymentDate: -1,
-      createdAt: -1,
-    });
 
-    /* -----------------------------------------------------
-         Account
-      ----------------------------------------------------- */
+      source: KHATABOOK_SOURCE,
+    })
+      .populate("seller", "shopName phone city address")
+      .sort({
+        paymentDate: -1,
 
-    const account = await getSellerOutstanding({
+        createdAt: -1,
+      });
+
+    /* ===================================================
+         ACCOUNT
+      =================================================== */
+
+    const account = await getSellerAccount({
       userId,
+
       sellerId,
     });
+
+    /* ===================================================
+         RESPONSE
+      =================================================== */
 
     return res.status(200).json({
       seller: {
         _id: seller._id,
+
         shopName: seller.shopName,
+
+        phone: seller.phone || "",
+
+        city: seller.city || "",
+
+        address: seller.address || "",
       },
 
       payments,
@@ -547,14 +818,26 @@ export const getPaymentsBySeller = async (req, res, next) => {
    UPDATE PAYMENT
 ========================================================= */
 
+/*
+ * Only genuine Khatabook payments
+ * can be edited.
+ *
+ * Sale payments are NEVER edited
+ * through this controller.
+ */
+
 export const updatePayment = async (req, res, next) => {
   try {
-    const userId = req.user?._id || req.user?.id;
+    const userId = getUserId(req);
 
     const { id } = req.params;
 
     const { paymentDate, amount, paymentMethod, note, referenceNumber } =
       req.body;
+
+    /* =====================================================
+         USER
+      ===================================================== */
 
     if (!userId) {
       return res.status(401).json({
@@ -562,28 +845,42 @@ export const updatePayment = async (req, res, next) => {
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    /* =====================================================
+         PAYMENT ID
+      ===================================================== */
+
+    if (!isValidObjectId(id)) {
       return res.status(400).json({
         message: "Invalid payment ID",
       });
     }
 
+    /* =====================================================
+         FIND KHATABOOK PAYMENT
+      ===================================================== */
+
     const existingPayment = await Payment.findOne({
       _id: id,
+
       user: userId,
+
+      source: KHATABOOK_SOURCE,
     });
 
     if (!existingPayment) {
       return res.status(404).json({
-        message: "Payment not found",
+        message: "Khatabook payment not found",
       });
     }
 
-    /* -----------------------------------------------------
-         Validate Amount
-      ----------------------------------------------------- */
+    /* =====================================================
+         NEW AMOUNT
+      ===================================================== */
 
-    const newAmount = Number(amount ?? existingPayment.amount);
+    const newAmount =
+      amount === undefined || amount === null || amount === ""
+        ? Number(existingPayment.amount)
+        : Number(amount);
 
     if (!Number.isFinite(newAmount) || newAmount <= 0) {
       return res.status(400).json({
@@ -591,17 +888,27 @@ export const updatePayment = async (req, res, next) => {
       });
     }
 
-    /* -----------------------------------------------------
-         Calculate Available Balance
-         
-         Add the old payment back because
-         we are replacing it.
-      ----------------------------------------------------- */
+    /* =====================================================
+         CURRENT ACCOUNT
+      ===================================================== */
 
-    const account = await getSellerOutstanding({
+    const account = await getSellerAccount({
       userId,
+
       sellerId: existingPayment.seller,
     });
+
+    /* =====================================================
+         AVAILABLE BALANCE
+      ===================================================== */
+
+    /*
+     * The current payment is already
+     * included in khatabookPayments.
+     *
+     * Add it back so that we can
+     * replace the old amount.
+     */
 
     const availableBalance =
       account.outstanding + Number(existingPayment.amount);
@@ -611,31 +918,28 @@ export const updatePayment = async (req, res, next) => {
         message: `Payment cannot be greater than the available outstanding balance of ₹${availableBalance.toFixed(
           2,
         )}`,
+
         outstanding: availableBalance,
       });
     }
 
-    /* -----------------------------------------------------
-         Payment Method
-      ----------------------------------------------------- */
-
-    const allowedMethods = ["Cash", "UPI", "Net Banking", "Other"];
+    /* =====================================================
+         PAYMENT METHOD
+      ===================================================== */
 
     const newMethod = paymentMethod ?? existingPayment.paymentMethod;
 
-    if (!allowedMethods.includes(newMethod)) {
+    if (!ALLOWED_PAYMENT_METHODS.includes(newMethod)) {
       return res.status(400).json({
         message: "Invalid payment method",
       });
     }
 
-    /* -----------------------------------------------------
-         Update
-      ----------------------------------------------------- */
+    /* =====================================================
+         PAYMENT DATE
+      ===================================================== */
 
-    existingPayment.amount = newAmount;
-
-    existingPayment.paymentMethod = newMethod;
+    let newPaymentDate = existingPayment.paymentDate;
 
     if (paymentDate !== undefined) {
       const parsedDate = new Date(paymentDate);
@@ -646,27 +950,51 @@ export const updatePayment = async (req, res, next) => {
         });
       }
 
-      existingPayment.paymentDate = parsedDate;
+      newPaymentDate = parsedDate;
     }
 
+    /* =====================================================
+         UPDATE
+      ===================================================== */
+
+    existingPayment.amount = newAmount;
+
+    existingPayment.paymentMethod = newMethod;
+
+    existingPayment.paymentDate = newPaymentDate;
+
     if (note !== undefined) {
-      existingPayment.note = note?.trim() || "";
+      existingPayment.note = typeof note === "string" ? note.trim() : "";
     }
 
     if (referenceNumber !== undefined) {
-      existingPayment.referenceNumber = referenceNumber?.trim() || "";
+      existingPayment.referenceNumber =
+        typeof referenceNumber === "string" ? referenceNumber.trim() : "";
     }
+
+    /*
+     * Make absolutely sure that an
+     * edited payment remains a
+     * Khatabook payment.
+     */
+
+    existingPayment.source = KHATABOOK_SOURCE;
 
     await existingPayment.save();
 
-    /* -----------------------------------------------------
-         Updated Account
-      ----------------------------------------------------- */
+    /* =====================================================
+         UPDATED ACCOUNT
+      ===================================================== */
 
-    const updatedAccount = await getSellerOutstanding({
+    const updatedAccount = await getSellerAccount({
       userId,
+
       sellerId: existingPayment.seller,
     });
+
+    /* =====================================================
+         RESPONSE
+      ===================================================== */
 
     return res.status(200).json({
       message: "Payment updated successfully",
@@ -675,6 +1003,10 @@ export const updatePayment = async (req, res, next) => {
 
       account: {
         totalSales: updatedAccount.totalSales,
+
+        salePayments: updatedAccount.salePayments,
+
+        khatabookPayments: updatedAccount.khatabookPayments,
 
         totalPaid: updatedAccount.totalPaid,
 
@@ -692,11 +1024,22 @@ export const updatePayment = async (req, res, next) => {
    DELETE PAYMENT
 ========================================================= */
 
+/*
+ * Only genuine Khatabook payments
+ * can be deleted.
+ *
+ * This NEVER modifies Sale.paidAmount.
+ */
+
 export const deletePayment = async (req, res, next) => {
   try {
-    const userId = req.user?._id || req.user?.id;
+    const userId = getUserId(req);
 
     const { id } = req.params;
+
+    /* =====================================================
+         USER
+      ===================================================== */
 
     if (!userId) {
       return res.status(401).json({
@@ -704,38 +1047,69 @@ export const deletePayment = async (req, res, next) => {
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    /* =====================================================
+         PAYMENT ID
+      ===================================================== */
+
+    if (!isValidObjectId(id)) {
       return res.status(400).json({
         message: "Invalid payment ID",
       });
     }
 
+    /* =====================================================
+         FIND KHATABOOK PAYMENT
+      ===================================================== */
+
     const payment = await Payment.findOne({
       _id: id,
+
       user: userId,
+
+      source: KHATABOOK_SOURCE,
     });
 
     if (!payment) {
       return res.status(404).json({
-        message: "Payment not found",
+        message: "Khatabook payment not found",
       });
     }
 
+    /* =====================================================
+         DELETE
+      ===================================================== */
+
     await Payment.deleteOne({
       _id: id,
+
       user: userId,
+
+      source: KHATABOOK_SOURCE,
     });
 
-    const updatedAccount = await getSellerOutstanding({
+    /* =====================================================
+         UPDATED ACCOUNT
+      ===================================================== */
+
+    const updatedAccount = await getSellerAccount({
       userId,
+
       sellerId: payment.seller,
     });
+
+    /* =====================================================
+         RESPONSE
+      ===================================================== */
 
     return res.status(200).json({
       message: "Payment deleted successfully",
 
       account: {
         totalSales: updatedAccount.totalSales,
+
+        salePayments: updatedAccount.salePayments,
+
+        khatabookPayments: updatedAccount.khatabookPayments,
 
         totalPaid: updatedAccount.totalPaid,
 

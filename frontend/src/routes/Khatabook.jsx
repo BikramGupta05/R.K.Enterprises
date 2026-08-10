@@ -5,12 +5,136 @@ import useSellers from "../hooks/useSellers.js";
 import useSales from "../hooks/useSales.js";
 import usePayments from "../hooks/usePayments.js";
 
+/* =========================================================
+   CONSTANTS
+========================================================= */
+
+const KHATABOOK_SOURCE = "KHATABOOK";
+
+/* =========================================================
+   HELPERS
+========================================================= */
+
+/*
+ * Format currency.
+ */
+const formatCurrency = (value) => {
+  return `₹${Number(value || 0).toFixed(2)}`;
+};
+
+/*
+ * Format date for display.
+ */
+const formatDate = (date) => {
+  if (!date) {
+    return "—";
+  }
+
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "—";
+  }
+
+  return parsedDate.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
+
+/*
+ * Get sale date.
+ */
+const getSaleDate = (sale) => {
+  return sale?.saleDate || sale?.purchaseDate || sale?.createdAt || null;
+};
+
+/*
+ * Get payment date.
+ */
+const getPaymentDate = (payment) => {
+  return payment?.paymentDate || payment?.date || payment?.createdAt || null;
+};
+
+/*
+ * Convert a YYYY-MM-DD input value
+ * into a local Date.
+ *
+ * This prevents timezone issues.
+ */
+const createLocalDate = (dateString, endOfDay = false) => {
+  if (!dateString) {
+    return null;
+  }
+
+  const [year, month, day] = dateString.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  if (endOfDay) {
+    return new Date(year, month - 1, day, 23, 59, 59, 999);
+  }
+
+  return new Date(year, month - 1, day, 0, 0, 0, 0);
+};
+
+/*
+ * Check whether a transaction belongs
+ * to the selected date range.
+ */
+const isDateInRange = (value, fromDate, toDate) => {
+  if (!value) {
+    return false;
+  }
+
+  const transactionDate = new Date(value);
+
+  if (Number.isNaN(transactionDate.getTime())) {
+    return false;
+  }
+
+  const startDate = createLocalDate(fromDate, false);
+
+  const endDate = createLocalDate(toDate, true);
+
+  if (startDate && transactionDate < startDate) {
+    return false;
+  }
+
+  if (endDate && transactionDate > endDate) {
+    return false;
+  }
+
+  return true;
+};
+
+/*
+ * Get seller ID safely.
+ */
+const getSaleSellerId = (sale) => {
+  return sale?.seller?._id || sale?.sellerId || sale?.seller || null;
+};
+
+/*
+ * Get payment seller ID safely.
+ */
+const getPaymentSellerId = (payment) => {
+  return payment?.seller?._id || payment?.sellerId || payment?.seller || null;
+};
+
+/* =========================================================
+   COMPONENT
+========================================================= */
+
 function Khatabook() {
   const navigate = useNavigate();
 
-  /* =========================================================
-     Hooks
-  ========================================================= */
+  /* =======================================================
+     HOOKS
+  ======================================================= */
 
   const {
     sellers,
@@ -32,120 +156,235 @@ function Khatabook() {
     fetchPayments,
   } = usePayments();
 
-  /* =========================================================
-     UI State
-  ========================================================= */
+  /* =======================================================
+     UI STATE
+  ======================================================= */
 
+  /*
+   * Seller search.
+   */
   const [search, setSearch] = useState("");
 
-  /* =========================================================
-     Load Khatabook Data
-  ========================================================= */
+  /*
+   * Date range.
+   */
+  const [fromDate, setFromDate] = useState("");
+
+  const [toDate, setToDate] = useState("");
+
+  /*
+   * Outstanding sorting.
+   *
+   * null = normal/default seller order
+   * asc  = lowest outstanding first
+   * desc = highest outstanding first
+   *
+   * Because this is React state, a browser
+   * refresh automatically resets it to null.
+   */
+  const [outstandingSort, setOutstandingSort] = useState(null);
+
+  /* =======================================================
+     LOAD KHATABOOK DATA
+  ======================================================= */
 
   useEffect(() => {
     fetchSales();
+
     fetchPayments();
   }, [fetchSales, fetchPayments]);
 
-  /* =========================================================
-     Loading
-  ========================================================= */
+  /* =======================================================
+     LOADING
+  ======================================================= */
 
   const loading = sellersLoading || salesLoading || paymentsLoading;
 
-  /* =========================================================
-     Seller Accounts
-  ========================================================= */
+  /* =======================================================
+     SELLER ACCOUNTS
+     
+     This is the main calculation.
+  ======================================================= */
 
   const sellerAccounts = useMemo(() => {
     if (!Array.isArray(sellers)) {
       return [];
     }
 
+    /*
+     * If user selects an invalid range,
+     * return no seller transactions.
+     */
+    const startDate = createLocalDate(fromDate, false);
+
+    const endDate = createLocalDate(toDate, true);
+
+    const invalidDateRange = startDate && endDate && startDate > endDate;
+
+    if (invalidDateRange) {
+      return sellers.map((seller) => ({
+        ...seller,
+
+        totalSales: 0,
+
+        totalAmount: 0,
+
+        salePayments: 0,
+
+        khatabookPayments: 0,
+
+        totalPaid: 0,
+
+        outstandingAmount: 0,
+
+        lastSaleDate: null,
+
+        lastPaymentDate: null,
+      }));
+    }
+
     return sellers.map((seller) => {
       const sellerId = String(seller._id);
 
-      /* -----------------------------------------------------
-         Sales belonging to this seller
-      ----------------------------------------------------- */
+      /* =================================================
+           SALES BELONGING TO SELLER
+        ================================================= */
 
       const sellerSales = Array.isArray(sales)
         ? sales.filter((sale) => {
-            const saleSellerId =
-              sale?.seller?._id || sale?.sellerId || sale?.seller;
+            const saleSellerId = getSaleSellerId(sale);
 
-            return String(saleSellerId) === sellerId;
+            if (String(saleSellerId) !== sellerId) {
+              return false;
+            }
+
+            /*
+             * Apply date range.
+             */
+            return isDateInRange(getSaleDate(sale), fromDate, toDate);
           })
         : [];
 
-      /* -----------------------------------------------------
-         Khatabook payments belonging to this seller
-      ----------------------------------------------------- */
+      /* =================================================
+           KHATABOOK PAYMENTS
+           
+           IMPORTANT:
+           
+           Only Payment documents created
+           through Khatabook Add Payment
+           are counted here.
+           
+           Sale-time payment is already stored
+           inside Sale.paidAmount.
+        ================================================= */
 
       const sellerPayments = Array.isArray(payments)
         ? payments.filter((payment) => {
-            const paymentSellerId =
-              payment?.seller?._id || payment?.sellerId || payment?.seller;
+            const paymentSellerId = getPaymentSellerId(payment);
 
-            return String(paymentSellerId) === sellerId;
+            if (String(paymentSellerId) !== sellerId) {
+              return false;
+            }
+
+            /*
+             * Do NOT count sale-time payment
+             * as a separate Payment.
+             */
+            if (payment?.source !== KHATABOOK_SOURCE) {
+              return false;
+            }
+
+            /*
+             * Apply date range.
+             */
+            return isDateInRange(getPaymentDate(payment), fromDate, toDate);
           })
         : [];
 
-      /* -----------------------------------------------------
-         Total Sale Value
-      ----------------------------------------------------- */
+      /* =================================================
+           TOTAL SALE VALUE
+        ================================================= */
 
       const totalAmount = sellerSales.reduce((total, sale) => {
         return total + (Number(sale?.grandTotal) || 0);
       }, 0);
 
-      /* -----------------------------------------------------
-         Payments Made During Sale
-      ----------------------------------------------------- */
+      /* =================================================
+           PAYMENTS MADE DURING SALE
+        ================================================= */
 
       const salePayments = sellerSales.reduce((total, sale) => {
         return total + (Number(sale?.paidAmount) || 0);
       }, 0);
 
-      /* -----------------------------------------------------
-         Later Khatabook Payments
-      ----------------------------------------------------- */
+      /* =================================================
+           LATER KHATABOOK PAYMENTS
+        ================================================= */
 
       const khatabookPayments = sellerPayments.reduce((total, payment) => {
         return total + (Number(payment?.amount) || 0);
       }, 0);
 
-      /* -----------------------------------------------------
-         Total Paid
-      ----------------------------------------------------- */
+      /* =================================================
+           TOTAL PAID
+        ================================================= */
 
       const totalPaid = salePayments + khatabookPayments;
 
-      /* -----------------------------------------------------
-         Outstanding
-      ----------------------------------------------------- */
+      /* =================================================
+           OUTSTANDING
+        ================================================= */
 
       const outstandingAmount = Math.max(totalAmount - totalPaid, 0);
 
-      /* -----------------------------------------------------
-         Last Sale
-      ----------------------------------------------------- */
+      /* =================================================
+           LAST SALE
+        ================================================= */
 
-      const sortedSales = [...sellerSales].sort(
-        (a, b) =>
-          new Date(b?.saleDate || b?.purchaseDate || b?.createdAt || 0) -
-          new Date(a?.saleDate || a?.purchaseDate || a?.createdAt || 0),
-      );
+      const sortedSales = [...sellerSales].sort((a, b) => {
+        const dateA = new Date(getSaleDate(a) || 0).getTime();
 
-      /* -----------------------------------------------------
-         Last Payment
-      ----------------------------------------------------- */
+        const dateB = new Date(getSaleDate(b) || 0).getTime();
 
-      const sortedPayments = [...sellerPayments].sort(
-        (a, b) =>
-          new Date(b?.paymentDate || b?.date || b?.createdAt || 0) -
-          new Date(a?.paymentDate || a?.date || a?.createdAt || 0),
-      );
+        if (dateB !== dateA) {
+          return dateB - dateA;
+        }
+
+        /*
+         * If two sales have the
+         * same date, newest created
+         * document comes first.
+         */
+        const createdA = new Date(a?.createdAt || 0).getTime();
+
+        const createdB = new Date(b?.createdAt || 0).getTime();
+
+        return createdB - createdA;
+      });
+
+      /* =================================================
+           LAST PAYMENT
+        ================================================= */
+
+      const sortedPayments = [...sellerPayments].sort((a, b) => {
+        const dateA = new Date(getPaymentDate(a) || 0).getTime();
+
+        const dateB = new Date(getPaymentDate(b) || 0).getTime();
+
+        if (dateB !== dateA) {
+          return dateB - dateA;
+        }
+
+        /*
+         * Same payment date:
+         * newest created payment first.
+         */
+        const createdA = new Date(a?.createdAt || 0).getTime();
+
+        const createdB = new Date(b?.createdAt || 0).getTime();
+
+        return createdB - createdA;
+      });
 
       return {
         ...seller,
@@ -162,26 +401,20 @@ function Khatabook() {
 
         outstandingAmount,
 
-        lastSaleDate:
-          sortedSales[0]?.saleDate ||
-          sortedSales[0]?.purchaseDate ||
-          sortedSales[0]?.createdAt ||
-          null,
+        lastSaleDate: sortedSales[0] ? getSaleDate(sortedSales[0]) : null,
 
-        lastPaymentDate:
-          sortedPayments[0]?.paymentDate ||
-          sortedPayments[0]?.date ||
-          sortedPayments[0]?.createdAt ||
-          null,
+        lastPaymentDate: sortedPayments[0]
+          ? getPaymentDate(sortedPayments[0])
+          : null,
       };
     });
-  }, [sellers, sales, payments]);
+  }, [sellers, sales, payments, fromDate, toDate]);
 
-  /* =========================================================
-     Search
-  ========================================================= */
+  /* =======================================================
+     SEARCH
+  ======================================================= */
 
-  const filteredSellers = useMemo(() => {
+  const searchedSellers = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     if (!query) {
@@ -201,65 +434,178 @@ function Khatabook() {
     });
   }, [sellerAccounts, search]);
 
-  /* =========================================================
-     Overall Totals
-  ========================================================= */
+  /* =======================================================
+     OUTSTANDING SORT
+     
+     DEFAULT
+       Original seller order
+     
+     ASC
+       Lowest outstanding first
+     
+     DESC
+       Highest outstanding first
+  ======================================================= */
+
+  const filteredSellers = useMemo(() => {
+    /*
+     * Always make a new array.
+     *
+     * We never mutate sellerAccounts.
+     */
+    const result = [...searchedSellers];
+
+    if (outstandingSort === "asc") {
+      result.sort((a, b) => {
+        const outstandingA = Number(a?.outstandingAmount) || 0;
+
+        const outstandingB = Number(b?.outstandingAmount) || 0;
+
+        /*
+         * Secondary alphabetical
+         * ordering keeps equal values stable.
+         */
+        if (outstandingA !== outstandingB) {
+          return outstandingA - outstandingB;
+        }
+
+        return String(a?.shopName || a?.name || "").localeCompare(
+          String(b?.shopName || b?.name || ""),
+          undefined,
+          {
+            sensitivity: "base",
+          },
+        );
+      });
+    }
+
+    if (outstandingSort === "desc") {
+      result.sort((a, b) => {
+        const outstandingA = Number(a?.outstandingAmount) || 0;
+
+        const outstandingB = Number(b?.outstandingAmount) || 0;
+
+        if (outstandingA !== outstandingB) {
+          return outstandingB - outstandingA;
+        }
+
+        return String(a?.shopName || a?.name || "").localeCompare(
+          String(b?.shopName || b?.name || ""),
+          undefined,
+          {
+            sensitivity: "base",
+          },
+        );
+      });
+    }
+
+    /*
+     * If outstandingSort is null,
+     * don't sort.
+     *
+     * Therefore refresh gives the
+     * normal/default order again.
+     */
+    return result;
+  }, [searchedSellers, outstandingSort]);
+
+  /* =======================================================
+     OVERALL TOTALS
+     
+     These totals respect:
+     
+     1. Search
+     2. Date range
+     3. Outstanding sorting does NOT affect totals
+  ======================================================= */
 
   const overall = useMemo(() => {
-    return filteredSellers.reduce(
+    return searchedSellers.reduce(
       (result, seller) => {
-        result.totalSales += seller.totalSales;
+        result.totalSales += Number(seller?.totalSales) || 0;
 
-        result.totalAmount += seller.totalAmount;
+        result.totalAmount += Number(seller?.totalAmount) || 0;
 
-        result.totalPaid += seller.totalPaid;
+        result.totalPaid += Number(seller?.totalPaid) || 0;
 
-        result.outstanding += seller.outstandingAmount;
+        result.outstanding += Number(seller?.outstandingAmount) || 0;
 
         return result;
       },
       {
         totalSales: 0,
+
         totalAmount: 0,
+
         totalPaid: 0,
+
         outstanding: 0,
       },
     );
-  }, [filteredSellers]);
+  }, [searchedSellers]);
 
-  /* =========================================================
-     Format Currency
-  ========================================================= */
+  /* =======================================================
+     OUTSTANDING SORT HANDLER
+     
+     Cycle:
+     
+     null → asc → desc → null
+     
+     However the user specifically wants
+     refresh to return to normal.
+     
+     Since state starts as null,
+     refresh automatically resets it.
+  ======================================================= */
 
-  const formatCurrency = (value) => {
-    return `₹${Number(value || 0).toFixed(2)}`;
-  };
+  const handleOutstandingSort = () => {
+    setOutstandingSort((currentSort) => {
+      if (currentSort === null) {
+        return "asc";
+      }
 
-  /* =========================================================
-     Format Date
-  ========================================================= */
+      if (currentSort === "asc") {
+        return "desc";
+      }
 
-  const formatDate = (date) => {
-    if (!date) {
-      return "—";
-    }
-
-    const parsedDate = new Date(date);
-
-    if (Number.isNaN(parsedDate.getTime())) {
-      return "—";
-    }
-
-    return parsedDate.toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
+      return null;
     });
   };
 
-  /* =========================================================
-     Navigation
-  ========================================================= */
+  /* =======================================================
+     CLEAR FILTERS
+  ======================================================= */
+
+  const clearFilters = () => {
+    setSearch("");
+
+    setFromDate("");
+
+    setToDate("");
+
+    /*
+     * Also return outstanding sorting
+     * to normal.
+     */
+    setOutstandingSort(null);
+  };
+
+  /* =======================================================
+     FILTER STATE
+  ======================================================= */
+
+  const hasFilters = Boolean(search.trim() || fromDate || toDate);
+
+  /* =======================================================
+     SORT ICON
+  ======================================================= */
+
+  const outstandingSortIcon =
+    outstandingSort === "asc" ? "↑" : outstandingSort === "desc" ? "↓" : "↕";
+
+  /* =======================================================
+     NAVIGATION
+  ======================================================= */
 
   const openSeller = (sellerId) => {
     if (!sellerId) {
@@ -269,15 +615,15 @@ function Khatabook() {
     navigate(`/khatabook/${sellerId}`);
   };
 
-  /* =========================================================
-     Error
-  ========================================================= */
+  /* =======================================================
+     ERROR
+  ======================================================= */
 
   const pageError = sellersError || salesError || paymentsError;
 
-  /* =========================================================
-     Loading UI
-  ========================================================= */
+  /* =======================================================
+     LOADING UI
+  ======================================================= */
 
   if (loading) {
     return (
@@ -293,15 +639,15 @@ function Khatabook() {
     );
   }
 
-  /* =========================================================
-     Main UI
-  ========================================================= */
+  /* =======================================================
+     MAIN UI
+  ======================================================= */
 
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-6 md:px-6">
       <div className="mx-auto max-w-7xl">
         {/* =================================================
-            Header
+            HEADER
         ================================================= */}
 
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -313,17 +659,19 @@ function Khatabook() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard")}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-          >
-            Back to Dashboard
-          </button>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => navigate("/dashboard")}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              Back to Dashboard
+            </button>
+          </div>
         </div>
 
         {/* =================================================
-            Error
+            ERROR
         ================================================= */}
 
         {pageError && (
@@ -333,7 +681,7 @@ function Khatabook() {
         )}
 
         {/* =================================================
-            Summary
+            SUMMARY
         ================================================= */}
 
         <div className="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -381,28 +729,96 @@ function Khatabook() {
         </div>
 
         {/* =================================================
-            Search
+            SEARCH + DATE RANGE
         ================================================= */}
 
-        <div className="mb-5 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
-          <div className="relative w-full md:max-w-md">
-            <input
-              type="text"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search seller, shop, phone or city..."
-              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-            />
+        <div className="mb-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <h2 className="font-semibold text-slate-900">Search & Filter</h2>
+
+            <p className="mt-1 text-xs text-slate-500">
+              Search sellers or filter their transactions by date.
+            </p>
           </div>
 
-          <p className="text-sm text-slate-500">
-            {filteredSellers.length} seller
-            {filteredSellers.length !== 1 ? "s" : ""} found
-          </p>
+          <div className="grid gap-4 md:grid-cols-4">
+            {/* Search */}
+
+            <div className="md:col-span-2">
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                Search
+              </label>
+
+              <input
+                type="text"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search seller, shop, phone or city..."
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+              />
+            </div>
+
+            {/* From Date */}
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                From Date
+              </label>
+
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(event) => setFromDate(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+              />
+            </div>
+
+            {/* To Date */}
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                To Date
+              </label>
+
+              <input
+                type="date"
+                value={toDate}
+                min={fromDate || undefined}
+                onChange={(event) => setToDate(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+              />
+            </div>
+          </div>
+
+          {/* Filter information */}
+
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-slate-500">
+              Showing{" "}
+              <span className="font-semibold text-slate-700">
+                {filteredSellers.length}
+              </span>{" "}
+              of{" "}
+              <span className="font-semibold text-slate-700">
+                {sellerAccounts.length}
+              </span>{" "}
+              sellers
+            </p>
+
+            {(hasFilters || outstandingSort !== null) && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
         </div>
 
         {/* =================================================
-            Seller Table
+            SELLER TABLE
         ================================================= */}
 
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -410,33 +826,65 @@ function Khatabook() {
             <table className="min-w-[1100px] w-full border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
+                  {/* Seller */}
+
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Seller
                   </th>
+
+                  {/* Sales */}
 
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Sales
                   </th>
 
+                  {/* Total Sale */}
+
                   <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Total Sale
                   </th>
+
+                  {/* Paid */}
 
                   <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Paid
                   </th>
 
+                  {/* Outstanding */}
+
                   <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Outstanding
+                    <button
+                      type="button"
+                      onClick={handleOutstandingSort}
+                      className="ml-auto inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:bg-slate-200 hover:text-slate-900"
+                      title={
+                        outstandingSort === null
+                          ? "Sort outstanding"
+                          : outstandingSort === "asc"
+                            ? "Sort highest outstanding first"
+                            : "Reset outstanding order"
+                      }
+                    >
+                      Outstanding
+                      <span className="text-sm font-bold">
+                        {outstandingSortIcon}
+                      </span>
+                    </button>
                   </th>
+
+                  {/* Last Sale */}
 
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Last Sale
                   </th>
 
+                  {/* Last Payment */}
+
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Last Payment
                   </th>
+
+                  {/* Action */}
 
                   <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Action
@@ -453,7 +901,7 @@ function Khatabook() {
                       </p>
 
                       <p className="mt-1 text-xs text-slate-400">
-                        Try another search.
+                        Try another search or date range.
                       </p>
                     </td>
                   </tr>
@@ -512,7 +960,7 @@ function Khatabook() {
                       <td className="px-4 py-4 text-right">
                         <span
                           className={
-                            seller.outstandingAmount > 0
+                            Number(seller.outstandingAmount) > 0
                               ? "font-semibold text-red-600"
                               : "font-semibold text-emerald-600"
                           }

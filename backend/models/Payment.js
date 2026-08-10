@@ -1,13 +1,13 @@
 import mongoose from "mongoose";
 
 /* =========================================================
-   Payment Schema
+   PAYMENT SCHEMA
 ========================================================= */
 
 const paymentSchema = new mongoose.Schema(
   {
     /* =======================================================
-       User
+       USER
     ======================================================= */
 
     user: {
@@ -18,7 +18,7 @@ const paymentSchema = new mongoose.Schema(
     },
 
     /* =======================================================
-       Seller
+       SELLER
     ======================================================= */
 
     seller: {
@@ -29,13 +29,7 @@ const paymentSchema = new mongoose.Schema(
     },
 
     /* =======================================================
-       Seller Name Snapshot
-       
-       We store the seller name at the time
-       the payment is recorded.
-       
-       If the seller's shop name changes later,
-       old payment records remain accurate.
+       SELLER NAME SNAPSHOT
     ======================================================= */
 
     sellerName: {
@@ -45,10 +39,11 @@ const paymentSchema = new mongoose.Schema(
     },
 
     /* =======================================================
-       Payment Number
+       PAYMENT NUMBER
        
        Example:
-       PAY-20260810-001
+       
+       PAY-20260810-0001
     ======================================================= */
 
     paymentNumber: {
@@ -60,92 +55,151 @@ const paymentSchema = new mongoose.Schema(
     },
 
     /* =======================================================
-       Payment Date
+       PAYMENT SOURCE
+       
+       KHATABOOK:
+       Payment manually recorded later
+       from the Khatabook page.
+       
+       SALE:
+       Legacy/old payment records that may
+       have been incorrectly created during
+       the sale flow.
+       
+       IMPORTANT:
+       
+       New sales should NOT create Payment
+       documents at all.
     ======================================================= */
 
-    paymentDate: {
-      type: Date,
+    source: {
+      type: String,
+
+      enum: ["KHATABOOK", "SALE"],
+
+      default: "KHATABOOK",
+
       required: true,
-      default: Date.now,
+
       index: true,
     },
 
     /* =======================================================
-       Amount
+       PAYMENT DATE
+    ======================================================= */
+
+    paymentDate: {
+      type: Date,
+
+      required: true,
+
+      default: Date.now,
+
+      index: true,
+    },
+
+    /* =======================================================
+       AMOUNT
     ======================================================= */
 
     amount: {
       type: Number,
+
       required: true,
+
       min: 0.01,
     },
 
     /* =======================================================
-       Payment Method
+       PAYMENT METHOD
     ======================================================= */
 
     paymentMethod: {
       type: String,
+
       enum: ["Cash", "UPI", "Net Banking", "Other"],
+
       required: true,
     },
 
     /* =======================================================
-       Optional Note
+       NOTE
     ======================================================= */
 
     note: {
       type: String,
+
       trim: true,
+
       default: "",
+
       maxlength: 500,
     },
 
     /* =======================================================
-       Reference Number
+       REFERENCE NUMBER
        
-       Useful for UPI / Net Banking transactions.
+       Useful for:
+       
+       UPI
+       Net Banking
+       Bank transaction reference
     ======================================================= */
 
     referenceNumber: {
       type: String,
+
       trim: true,
+
       default: "",
+
       maxlength: 100,
     },
   },
+
   {
     timestamps: true,
   },
 );
 
 /* =========================================================
-   Indexes
+   INDEXES
 ========================================================= */
 
 /*
- * Quickly find all payments belonging
- * to a particular seller.
+ * Khatabook payments for a seller.
+ *
+ * This is the most important index for
+ * the new calculation.
  */
 
 paymentSchema.index({
   user: 1,
+
   seller: 1,
+
+  source: 1,
+
   paymentDate: -1,
 });
 
 /*
- * Quickly retrieve a user's
- * complete payment history.
+ * Complete payment history.
  */
 
 paymentSchema.index({
   user: 1,
+
   paymentDate: -1,
 });
 
+/*
+ * Payment number is already unique/indexed
+ * through the schema field.
+ */
+
 /* =========================================================
-   Model
+   MODEL
 ========================================================= */
 
 const Payment =

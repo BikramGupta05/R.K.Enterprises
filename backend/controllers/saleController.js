@@ -1,7 +1,6 @@
 import mongoose from "mongoose";
 
 import Sale from "../models/Sale.js";
-import Payment from "../models/Payment.js";
 import Seller from "../models/Seller.js";
 import Item from "../models/Item.js";
 import Stock from "../models/Stock.js";
@@ -33,24 +32,6 @@ const generateSaleNumber = () => {
 };
 
 /* =========================================================
-   GENERATE PAYMENT NUMBER
-========================================================= */
-
-const generatePaymentNumber = () => {
-  const date = new Date();
-
-  const year = date.getFullYear();
-
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-
-  const day = String(date.getDate()).padStart(2, "0");
-
-  const randomPart = String(Math.floor(100000 + Math.random() * 900000));
-
-  return `PAY-${year}${month}${day}-${randomPart}`;
-};
-
-/* =========================================================
    CREATE UNIQUE SALE NUMBER
 ========================================================= */
 
@@ -77,32 +58,6 @@ const createUniqueSaleNumber = async (session) => {
 };
 
 /* =========================================================
-   CREATE UNIQUE PAYMENT NUMBER
-========================================================= */
-
-const createUniquePaymentNumber = async (session) => {
-  let paymentNumber = generatePaymentNumber();
-
-  let existingPayment = await Payment.findOne({
-    paymentNumber,
-  })
-    .session(session)
-    .lean();
-
-  while (existingPayment) {
-    paymentNumber = generatePaymentNumber();
-
-    existingPayment = await Payment.findOne({
-      paymentNumber,
-    })
-      .session(session)
-      .lean();
-  }
-
-  return paymentNumber;
-};
-
-/* =========================================================
    CREATE SALE
 ========================================================= */
 
@@ -116,11 +71,36 @@ export const createSale = async (req, res, next) => {
       items,
 
       /*
-       * NEW PAYMENT FIELDS
+       * IMPORTANT
+       *
+       * Money received during the
+       * original sale.
+       *
+       * This belongs to Sale.
+       *
+       * It must NOT create a Payment
+       * document.
        */
       paidAmount,
+
       paymentMethod,
+
+      paymentDate,
+
+      paymentReference,
+
+      paymentNote,
     } = req.body;
+
+    /* =====================================================
+       AUTHENTICATED USER
+    ===================================================== */
+
+    if (!req.user?.id) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
 
     /* =====================================================
        SELLER VALIDATION
@@ -185,6 +165,10 @@ export const createSale = async (req, res, next) => {
       });
     }
 
+    /* =====================================================
+       PAYMENT METHOD
+    ===================================================== */
+
     const allowedPaymentMethods = ["Cash", "UPI", "Net Banking", "Other"];
 
     const finalPaymentMethod = paymentMethod || "Cash";
@@ -194,6 +178,42 @@ export const createSale = async (req, res, next) => {
         message: "Invalid payment method",
       });
     }
+
+    /* =====================================================
+       PAYMENT DATE
+    ===================================================== */
+
+    let finalPaymentDate = null;
+
+    if (
+      paymentDate !== undefined &&
+      paymentDate !== null &&
+      paymentDate !== ""
+    ) {
+      const parsedPaymentDate = new Date(paymentDate);
+
+      if (Number.isNaN(parsedPaymentDate.getTime())) {
+        return res.status(400).json({
+          message: "Invalid payment date",
+        });
+      }
+
+      finalPaymentDate = parsedPaymentDate;
+    }
+
+    /* =====================================================
+       PAYMENT REFERENCE
+    ===================================================== */
+
+    const finalPaymentReference =
+      typeof paymentReference === "string" ? paymentReference.trim() : "";
+
+    /* =====================================================
+       PAYMENT NOTE
+    ===================================================== */
+
+    const finalPaymentNote =
+      typeof paymentNote === "string" ? paymentNote.trim() : "";
 
     /* =====================================================
        MERGE DUPLICATE ITEMS
@@ -214,11 +234,19 @@ export const createSale = async (req, res, next) => {
 
       const price = Number(saleItem.price);
 
+      /* ===================================================
+         QUANTITY
+      =================================================== */
+
       if (!Number.isFinite(quantity) || quantity < 0) {
         return res.status(400).json({
           message: "Quantity must be a valid number",
         });
       }
+
+      /* ===================================================
+         PIECES
+      =================================================== */
 
       if (!Number.isFinite(pieces) || pieces < 0) {
         return res.status(400).json({
@@ -226,17 +254,29 @@ export const createSale = async (req, res, next) => {
         });
       }
 
+      /* ===================================================
+         PRICE
+      =================================================== */
+
       if (!Number.isFinite(price) || price < 0) {
         return res.status(400).json({
           message: "Price must be a valid number",
         });
       }
 
+      /* ===================================================
+         EMPTY ITEM
+      =================================================== */
+
       if (quantity === 0 && pieces === 0) {
         return res.status(400).json({
           message: "Each item must have quantity or pieces greater than zero",
         });
       }
+
+      /* ===================================================
+         MERGE
+      =================================================== */
 
       if (itemMap.has(saleItem.itemId)) {
         const existing = itemMap.get(saleItem.itemId);
@@ -246,7 +286,7 @@ export const createSale = async (req, res, next) => {
         existing.pieces += pieces;
 
         /*
-         * Keep the latest entered price.
+         * Keep latest entered price.
          */
         existing.price = price;
       } else {
@@ -277,9 +317,9 @@ export const createSale = async (req, res, next) => {
     ===================================================== */
 
     for (const saleItem of itemMap.values()) {
-      /* ---------------------------------------------------
+      /* ===================================================
          FIND ITEM
-      --------------------------------------------------- */
+      =================================================== */
 
       const item = await Item.findOne({
         _id: saleItem.itemId,
@@ -293,9 +333,9 @@ export const createSale = async (req, res, next) => {
         throw new Error(`Item not found: ${saleItem.itemId}`);
       }
 
-      /* ---------------------------------------------------
+      /* ===================================================
          FIND STOCK
-      --------------------------------------------------- */
+      =================================================== */
 
       const stock = await Stock.findOne({
         user: req.user.id,
@@ -307,9 +347,9 @@ export const createSale = async (req, res, next) => {
         throw new Error(`No stock available for ${item.title}`);
       }
 
-      /* ---------------------------------------------------
+      /* ===================================================
          QUANTITY VALIDATION
-      --------------------------------------------------- */
+      =================================================== */
 
       if (saleItem.quantity > stock.quantity) {
         throw new Error(
@@ -317,9 +357,9 @@ export const createSale = async (req, res, next) => {
         );
       }
 
-      /* ---------------------------------------------------
+      /* ===================================================
          PIECES VALIDATION
-      --------------------------------------------------- */
+      =================================================== */
 
       if (saleItem.pieces > stock.pieces) {
         throw new Error(
@@ -327,17 +367,17 @@ export const createSale = async (req, res, next) => {
         );
       }
 
-      /* ---------------------------------------------------
-         CALCULATE ITEM TOTAL
-      --------------------------------------------------- */
+      /* ===================================================
+         ITEM TOTAL
+      =================================================== */
 
       const total = saleItem.quantity * saleItem.price;
 
       itemsTotal += total;
 
-      /* ---------------------------------------------------
+      /* ===================================================
          HISTORICAL SALE ITEM
-      --------------------------------------------------- */
+      =================================================== */
 
       saleItems.push({
         item: item._id,
@@ -353,17 +393,17 @@ export const createSale = async (req, res, next) => {
         total,
       });
 
-      /* ---------------------------------------------------
+      /* ===================================================
          REDUCE STOCK
-      --------------------------------------------------- */
+      =================================================== */
 
       stock.quantity -= saleItem.quantity;
 
       stock.pieces -= saleItem.pieces;
 
-      /* ---------------------------------------------------
+      /* ===================================================
          PREVENT NEGATIVE STOCK
-      --------------------------------------------------- */
+      =================================================== */
 
       if (stock.quantity < 0 || stock.pieces < 0) {
         throw new Error(`Stock cannot become negative for ${item.title}`);
@@ -381,7 +421,7 @@ export const createSale = async (req, res, next) => {
     const grandTotal = itemsTotal;
 
     /* =====================================================
-       PAYMENT VALIDATION AGAINST BILL
+       PAYMENT CANNOT EXCEED BILL
     ===================================================== */
 
     if (finalPaidAmount > grandTotal) {
@@ -411,6 +451,39 @@ export const createSale = async (req, res, next) => {
     }
 
     /* =====================================================
+       SALE PAYMENT DATE
+    ===================================================== */
+
+    if (finalPaidAmount > 0 && !finalPaymentDate) {
+      finalPaymentDate = saleDate || new Date();
+    }
+
+    /*
+     * No money received means
+     * there is no sale payment date.
+     */
+
+    if (finalPaidAmount === 0) {
+      finalPaymentDate = null;
+    }
+
+    /* =====================================================
+       SALE PAYMENT DATA
+    ===================================================== */
+
+    /*
+     * If no payment was made,
+     * these fields remain empty.
+     */
+
+    const salePaymentMethod = finalPaidAmount > 0 ? finalPaymentMethod : "Cash";
+
+    const salePaymentReference =
+      finalPaidAmount > 0 ? finalPaymentReference : "";
+
+    const salePaymentNote = finalPaidAmount > 0 ? finalPaymentNote : "";
+
+    /* =====================================================
        SALE NUMBER
     ===================================================== */
 
@@ -437,74 +510,85 @@ export const createSale = async (req, res, next) => {
 
       grandTotal,
 
-      /*
-       * NEW
-       */
+      /* =================================================
+           SALE TIME PAYMENT
+           
+           THIS IS THE ONLY PLACE WHERE
+           THIS PAYMENT IS STORED.
+        ================================================= */
+
       paidAmount: finalPaidAmount,
 
-      paymentMethod: finalPaymentMethod,
+      paymentMethod: salePaymentMethod,
+
+      paymentDate: finalPaymentDate,
+
+      paymentReference: salePaymentReference,
+
+      paymentNote: salePaymentNote,
 
       creditAmount,
 
       paymentStatus,
     });
 
+    /* =====================================================
+       SAVE SALE
+    ===================================================== */
+
     await sale.save({
       session,
     });
 
     /* =====================================================
-       CREATE INITIAL PAYMENT RECORD
+       VERY IMPORTANT
+       
+       DO NOT CREATE PAYMENT DOCUMENT HERE
     ===================================================== */
 
     /*
-     * If the customer paid something at the time
-     * of sale, create a Payment document too.
+     * DO NOT WRITE:
      *
-     * This is extremely important.
+     * Payment.create(...)
      *
-     * Otherwise Khatabook would know:
+     * here.
      *
-     * Sale = ₹10,000
-     * Paid = ₹4,000
+     * The payment made during the sale is
+     * represented by:
      *
-     * but the Payment collection would incorrectly
-     * show ₹0 received.
+     * Sale.paidAmount
+     *
+     * and:
+     *
+     * Sale.paymentMethod
+     *
+     * and:
+     *
+     * Sale.paymentDate
+     *
+     * and:
+     *
+     * Sale.paymentReference
+     *
+     * and:
+     *
+     * Sale.paymentNote
+     *
+     * A Payment document is ONLY created
+     * from:
+     *
+     * Khatabook → Seller → Add Payment
+     *
+     * That Payment document must have:
+     *
+     * source = "KHATABOOK"
+     *
+     * This prevents the same ₹80 from
+     * being counted twice.
      */
 
-    if (finalPaidAmount > 0) {
-      const paymentNumber = await createUniquePaymentNumber(session);
-
-      await Payment.create(
-        [
-          {
-            user: req.user.id,
-
-            seller: seller._id,
-
-            sellerName: seller.shopName,
-
-            sale: sale._id,
-
-            paymentNumber,
-
-            paymentDate: saleDate || new Date(),
-
-            amount: finalPaidAmount,
-
-            paymentMethod: finalPaymentMethod,
-
-            notes: "Payment received at the time of sale",
-          },
-        ],
-        {
-          session,
-        },
-      );
-    }
-
     /* =====================================================
-       COMMIT TRANSACTION
+       COMMIT
     ===================================================== */
 
     await session.commitTransaction();
@@ -527,6 +611,8 @@ export const createSale = async (req, res, next) => {
       await session.abortTransaction();
     }
 
+    console.error("Create sale error:", error);
+
     return res.status(400).json({
       message: error.message || "Unable to create sale",
     });
@@ -541,6 +627,12 @@ export const createSale = async (req, res, next) => {
 
 export const getSales = async (req, res, next) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
+
     const sales = await Sale.find({
       user: req.user.id,
     })
@@ -565,6 +657,12 @@ export const getSales = async (req, res, next) => {
 export const getSaleById = async (req, res, next) => {
   try {
     const { id } = req.params;
+
+    if (!req.user?.id) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
 
     if (!isValidObjectId(id)) {
       return res.status(400).json({
@@ -600,6 +698,12 @@ export const getSalesBySeller = async (req, res, next) => {
   try {
     const { sellerId } = req.params;
 
+    if (!req.user?.id) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
+
     if (!isValidObjectId(sellerId)) {
       return res.status(400).json({
         message: "Invalid seller ID",
@@ -612,9 +716,9 @@ export const getSalesBySeller = async (req, res, next) => {
       seller: sellerId,
     };
 
-    /* ---------------------------------------------------
+    /* ===================================================
          DATE FILTER
-      --------------------------------------------------- */
+      =================================================== */
 
     if (req.query.from || req.query.to) {
       query.saleDate = {};
@@ -672,6 +776,12 @@ export const getSalesByItem = async (req, res, next) => {
   try {
     const { itemId } = req.params;
 
+    if (!req.user?.id) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
+
     if (!isValidObjectId(itemId)) {
       return res.status(400).json({
         message: "Invalid item ID",
@@ -684,9 +794,9 @@ export const getSalesByItem = async (req, res, next) => {
       "items.item": itemId,
     };
 
-    /* ---------------------------------------------------
+    /* ===================================================
          DATE FILTER
-      --------------------------------------------------- */
+      =================================================== */
 
     if (req.query.from || req.query.to) {
       query.saleDate = {};
@@ -728,20 +838,13 @@ export const getSalesByItem = async (req, res, next) => {
       })
       .lean();
 
-    /*
-     * Return only the requested item
-     * from each sale.
-     */
+    const result = sales.map((sale) => ({
+      ...sale,
 
-    const result = sales.map((sale) => {
-      return {
-        ...sale,
-
-        items: sale.items.filter(
-          (saleItem) => saleItem.item?.toString() === itemId,
-        ),
-      };
-    });
+      items: sale.items.filter(
+        (saleItem) => saleItem.item?.toString() === itemId,
+      ),
+    }));
 
     return res.status(200).json({
       sales: result,
@@ -757,13 +860,19 @@ export const getSalesByItem = async (req, res, next) => {
 
 export const getSellerSalesSummary = async (req, res, next) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
+
     const match = {
       user: new mongoose.Types.ObjectId(req.user.id),
     };
 
-    /* ---------------------------------------------------
+    /* ===================================================
          DATE FILTER
-      --------------------------------------------------- */
+      =================================================== */
 
     if (req.query.from || req.query.to) {
       match.saleDate = {};
@@ -818,9 +927,22 @@ export const getSellerSalesSummary = async (req, res, next) => {
             $sum: "$grandTotal",
           },
 
+          /*
+           * Money received during
+           * original sales only.
+           *
+           * Later Khatabook payments
+           * are NOT included here.
+           */
+
           totalPaid: {
             $sum: "$paidAmount",
           },
+
+          /*
+           * Credit generated by
+           * original sales.
+           */
 
           totalCredit: {
             $sum: "$creditAmount",
@@ -851,13 +973,19 @@ export const getSellerSalesSummary = async (req, res, next) => {
 
 export const getItemSalesSummary = async (req, res, next) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
+
     const match = {
       user: new mongoose.Types.ObjectId(req.user.id),
     };
 
-    /* ---------------------------------------------------
+    /* ===================================================
          DATE FILTER
-      --------------------------------------------------- */
+      =================================================== */
 
     if (req.query.from || req.query.to) {
       match.saleDate = {};

@@ -6,62 +6,64 @@ import mongoose from "mongoose";
 
 const saleItemSchema = new mongoose.Schema(
   {
-    /*
-     * Original Item ID.
-     *
-     * This keeps the sale connected to the
-     * original Item document.
-     */
+    /* =======================================================
+       ITEM
+    ======================================================= */
+
     item: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Item",
       required: true,
     },
 
-    /*
-     * Snapshot of item name at the time of sale.
-     *
-     * If the item is renamed later, old sales
-     * will still show the original name.
-     */
+    /* =======================================================
+       ITEM NAME SNAPSHOT
+    ======================================================= */
+
     itemName: {
       type: String,
       required: true,
       trim: true,
     },
 
-    /*
-     * Quantity sold.
-     */
+    /* =======================================================
+       QUANTITY
+    ======================================================= */
+
     quantity: {
       type: Number,
       required: true,
       min: 0,
     },
 
-    /*
-     * Pieces sold.
-     */
+    /* =======================================================
+       PIECES
+    ======================================================= */
+
     pieces: {
       type: Number,
       required: true,
       min: 0,
     },
 
-    /*
-     * Selling price per quantity.
-     */
+    /* =======================================================
+       PRICE
+       
+       Selling price per quantity.
+    ======================================================= */
+
     price: {
       type: Number,
       required: true,
       min: 0,
     },
 
-    /*
-     * Total for this particular item.
-     *
-     * quantity × price
-     */
+    /* =======================================================
+       TOTAL
+       
+       quantity × price
+    ======================================================= */
+
     total: {
       type: Number,
       required: true,
@@ -83,11 +85,6 @@ const saleSchema = new mongoose.Schema(
        USER
     ======================================================= */
 
-    /*
-     * User who created this sale.
-     *
-     * Every user must only see their own sales.
-     */
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -99,9 +96,6 @@ const saleSchema = new mongoose.Schema(
        SELLER
     ======================================================= */
 
-    /*
-     * Seller/customer connected to this sale.
-     */
     seller: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Seller",
@@ -109,12 +103,10 @@ const saleSchema = new mongoose.Schema(
       index: true,
     },
 
-    /*
-     * Seller name snapshot.
-     *
-     * If seller's shop name changes later,
-     * historical sales remain unchanged.
-     */
+    /* =======================================================
+       SELLER NAME SNAPSHOT
+    ======================================================= */
+
     sellerName: {
       type: String,
       required: true,
@@ -123,15 +115,12 @@ const saleSchema = new mongoose.Schema(
 
     /* =======================================================
        SALE NUMBER
+       
+       Example:
+       
+       SAL-20260810-37177
     ======================================================= */
 
-    /*
-     * Unique human readable sale number.
-     *
-     * Example:
-     *
-     * SAL-20260810-123456
-     */
     saleNumber: {
       type: String,
       required: true,
@@ -157,6 +146,7 @@ const saleSchema = new mongoose.Schema(
 
     items: {
       type: [saleItemSchema],
+
       required: true,
 
       validate: {
@@ -172,10 +162,6 @@ const saleSchema = new mongoose.Schema(
        ITEMS TOTAL
     ======================================================= */
 
-    /*
-     * Total of all sale items before
-     * payment calculation.
-     */
     itemsTotal: {
       type: Number,
       required: true,
@@ -186,13 +172,6 @@ const saleSchema = new mongoose.Schema(
        GRAND TOTAL
     ======================================================= */
 
-    /*
-     * Final bill amount.
-     *
-     * Currently your selling system has no
-     * additional charge, so grandTotal is
-     * equal to itemsTotal.
-     */
     grandTotal: {
       type: Number,
       required: true,
@@ -201,31 +180,32 @@ const saleSchema = new mongoose.Schema(
 
     /* =======================================================
        PAID AMOUNT
+       
+       IMPORTANT:
+       
+       This is the amount received DURING
+       the original sale.
+       
+       It is NOT a Payment document.
     ======================================================= */
 
-    /*
-     * Amount paid at the time of sale.
-     *
-     * Example:
-     *
-     * Bill = ₹10,000
-     * Paid = ₹4,000
-     */
     paidAmount: {
       type: Number,
+
       required: true,
+
       default: 0,
+
       min: 0,
     },
 
     /* =======================================================
        PAYMENT METHOD
+       
+       Method used when money was received
+       during the original sale.
     ======================================================= */
 
-    /*
-     * Payment method used for the amount
-     * paid at the time of sale.
-     */
     paymentMethod: {
       type: String,
 
@@ -235,24 +215,68 @@ const saleSchema = new mongoose.Schema(
     },
 
     /* =======================================================
-       CREDIT AMOUNT
+       SALE PAYMENT DATE
+       
+       Date on which the amount was received
+       during the sale.
+       
+       This is separate from paymentDate in
+       the Payment collection.
     ======================================================= */
 
-    /*
-     * Amount still outstanding after
-     * the current payment.
-     *
-     * Example:
-     *
-     * grandTotal = ₹10,000
-     * paidAmount = ₹4,000
-     *
-     * creditAmount = ₹6,000
-     */
+    paymentDate: {
+      type: Date,
+
+      default: null,
+    },
+
+    /* =======================================================
+       SALE PAYMENT REFERENCE
+       
+       Used for UPI / Net Banking etc.
+    ======================================================= */
+
+    paymentReference: {
+      type: String,
+
+      trim: true,
+
+      default: "",
+
+      maxlength: 100,
+    },
+
+    /* =======================================================
+       SALE PAYMENT NOTE
+    ======================================================= */
+
+    paymentNote: {
+      type: String,
+
+      trim: true,
+
+      default: "",
+
+      maxlength: 500,
+    },
+
+    /* =======================================================
+       CREDIT AMOUNT
+       
+       Example:
+       
+       Bill       = ₹190
+       Paid       = ₹80
+       Credit     = ₹110
+    ======================================================= */
+
     creditAmount: {
       type: Number,
+
       required: true,
+
       default: 0,
+
       min: 0,
     },
 
@@ -260,17 +284,13 @@ const saleSchema = new mongoose.Schema(
        PAYMENT STATUS
     ======================================================= */
 
-    /*
-     * PAID
-     * PARTIAL
-     * CREDIT
-     */
     paymentStatus: {
       type: String,
 
       enum: ["PAID", "PARTIAL", "CREDIT"],
 
       default: "CREDIT",
+
       index: true,
     },
   },
@@ -287,6 +307,7 @@ const saleSchema = new mongoose.Schema(
 /*
  * User's sales sorted by date.
  */
+
 saleSchema.index({
   user: 1,
   saleDate: -1,
@@ -295,6 +316,7 @@ saleSchema.index({
 /*
  * Seller-specific sales.
  */
+
 saleSchema.index({
   user: 1,
   seller: 1,
@@ -303,13 +325,8 @@ saleSchema.index({
 
 /*
  * Seller + payment status.
- *
- * Useful for:
- *
- * PAID
- * PARTIAL
- * CREDIT
  */
+
 saleSchema.index({
   user: 1,
   seller: 1,
@@ -319,6 +336,7 @@ saleSchema.index({
 /*
  * Outstanding sales.
  */
+
 saleSchema.index({
   user: 1,
   creditAmount: 1,
@@ -331,45 +349,94 @@ saleSchema.index({
 /*
  * Keep payment fields mathematically consistent.
  *
- * This protects the database even if some future
- * frontend code accidentally sends incorrect values.
+ * IMPORTANT:
+ *
+ * This does NOT create a Payment document.
+ *
+ * It only calculates the values inside
+ * the Sale document.
  */
+
 saleSchema.pre("validate", function (next) {
+  /* =====================================================
+       GRAND TOTAL
+    ===================================================== */
+
   const grandTotal = Number(this.grandTotal) || 0;
+
+  /* =====================================================
+       PAID AMOUNT
+    ===================================================== */
 
   let paidAmount = Number(this.paidAmount) || 0;
 
-  /*
-   * Never allow paid amount to become
-   * greater than the bill.
-   */
-  if (paidAmount > grandTotal) {
-    return next(new Error("Paid amount cannot be greater than the sale total"));
-  }
+  /* =====================================================
+       NEGATIVE PAYMENT
+    ===================================================== */
 
-  /*
-   * Never allow a negative paid amount.
-   */
   if (paidAmount < 0) {
     paidAmount = 0;
   }
 
+  /* =====================================================
+       PAYMENT CANNOT EXCEED BILL
+    ===================================================== */
+
+  if (paidAmount > grandTotal) {
+    return next(new Error("Paid amount cannot be greater than the sale total"));
+  }
+
+  /* =====================================================
+       SAVE NORMALIZED PAID AMOUNT
+    ===================================================== */
+
   this.paidAmount = paidAmount;
 
-  /*
-   * Calculate remaining credit.
-   */
+  /* =====================================================
+       CREDIT CALCULATION
+    ===================================================== */
+
   this.creditAmount = Math.max(grandTotal - paidAmount, 0);
 
-  /*
-   * Determine payment status.
-   */
+  /* =====================================================
+       PAYMENT STATUS
+    ===================================================== */
+
   if (this.creditAmount === 0) {
     this.paymentStatus = "PAID";
   } else if (paidAmount > 0) {
     this.paymentStatus = "PARTIAL";
   } else {
     this.paymentStatus = "CREDIT";
+  }
+
+  /* =====================================================
+       PAYMENT DATE
+       
+       If there is no payment, there
+       should be no payment date.
+    ===================================================== */
+
+  if (paidAmount === 0) {
+    this.paymentDate = null;
+  } else if (!this.paymentDate) {
+    this.paymentDate = this.saleDate || new Date();
+  }
+
+  /* =====================================================
+       PAYMENT METHOD
+       
+       If no payment happened,
+       don't treat the default Cash
+       as an actual payment.
+       
+       We keep the schema default for
+       compatibility, but normalize it
+       only when needed.
+    ===================================================== */
+
+  if (paidAmount === 0) {
+    this.paymentMethod = undefined;
   }
 
   next();
