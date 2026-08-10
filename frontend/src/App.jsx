@@ -16,6 +16,7 @@ import Sellers from "./routes/Sellers.jsx";
 import Stock from "./routes/Stock.jsx";
 import Selling from "./routes/Selling.jsx";
 import SellingHistory from "./routes/SellingHistory.jsx";
+import Expenditure from "./routes/Expenditure.jsx";
 
 function ProtectedRoute({ children }) {
   const { accessToken, loading } = useAuth();
@@ -119,6 +120,14 @@ function App() {
           element={
             <ProtectedRoute>
               <SellingHistory />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/expenditure"
+          element={
+            <ProtectedRoute>
+              <Expenditure />
             </ProtectedRoute>
           }
         />

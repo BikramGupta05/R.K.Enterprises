@@ -15,6 +15,7 @@ import purchaseRoutes from "./routes/purchase.js";
 import sellerRoutes from "./routes/seller.js";
 import stockRoutes from "./routes/stock.js";
 import saleRoutes from "./routes/sale.js";
+import expenditureRoutes from "./routes/expenditure.js";
 
 const app = express();
 const requestedPort = Number(process.env.PORT || 5000);
@@ -55,6 +56,7 @@ app.use("/api/purchases", purchaseRoutes);
 app.use("/api/sellers", sellerRoutes);
 app.use("/api/stock", stockRoutes);
 app.use("/api/sales", saleRoutes);
+app.use("/api/expenditures", expenditureRoutes);
 
 app.get("/", (req, res) => {
   res.send("MERN auth backend is running");

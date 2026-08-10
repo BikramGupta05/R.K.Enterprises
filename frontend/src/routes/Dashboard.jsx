@@ -232,6 +232,18 @@ function Dashboard() {
 
               <p className="mt-3 text-slate-500">View your previous sales.</p>
             </div>
+            <div
+              onClick={() => navigate("/expenditure")}
+              className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
+            >
+              <h2 className="text-xl font-semibold text-slate-900">
+                Expenditure
+              </h2>
+
+              <p className="mt-2 text-sm text-slate-500">
+                Track and analyse your business expenses.
+              </p>
+            </div>
           </div>
         </div>
       </div>
