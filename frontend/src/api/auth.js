@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios from "axios";
 
 let authToken = null;
 
@@ -7,11 +7,11 @@ export const setAuthToken = (token) => {
 };
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: "/api",
   withCredentials: true,
   headers: {
-    'Content-Type': 'application/json'
-  }
+    "Content-Type": "application/json",
+  },
 });
 
 api.interceptors.request.use(
@@ -19,13 +19,13 @@ api.interceptors.request.use(
     if (authToken) {
       config.headers = {
         ...config.headers,
-        Authorization: `Bearer ${authToken}`
+        Authorization: `Bearer ${authToken}`,
       };
     }
 
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => Promise.reject(error),
 );
 
 export default api;

@@ -1,23 +1,46 @@
 function SaleItemRow({ row, index, stocks, onChange, onRemove, canRemove }) {
-  const selectedStock = stocks.find(
-    (stock) => stock.item === row.itemId || stock.item?._id === row.itemId,
-  );
+  /* =========================================================
+     Selected Stock
+  ========================================================= */
 
-  const availableQuantity = selectedStock?.quantity ?? 0;
+  const selectedStock = stocks.find((stock) => {
+    const stockItemId = stock.item?._id || stock.item;
 
-  const availablePieces = selectedStock?.pieces ?? 0;
+    return stockItemId === row.itemId;
+  });
 
-  const rowTotal = Number(row.quantity || 0) * Number(row.price || 0);
+  /* =========================================================
+     Available Stock
+  ========================================================= */
+
+  const availableQuantity = Number(selectedStock?.quantity || 0);
+
+  const availablePieces = Number(selectedStock?.pieces || 0);
+
+  /* =========================================================
+     Row Total
+  ========================================================= */
+
+  const quantity = Number(row.quantity) || 0;
+  const price = Number(row.price) || 0;
+
+  const rowTotal = quantity * price;
+
+  /* =========================================================
+     Render
+  ========================================================= */
 
   return (
-    <tr className="border-b border-slate-200">
-      {/* Item */}
+    <tr className="border-b border-slate-200 last:border-b-0">
+      {/* =====================================================
+          Item
+      ===================================================== */}
 
       <td className="p-3 align-top">
         <select
           value={row.itemId}
           onChange={(event) => onChange(index, "itemId", event.target.value)}
-          className="w-full min-w-[180px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+          className="w-full min-w-[180px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
         >
           <option value="">Select item</option>
 
@@ -33,21 +56,31 @@ function SaleItemRow({ row, index, stocks, onChange, onRemove, canRemove }) {
         </select>
       </td>
 
-      {/* Available */}
+      {/* =====================================================
+          Available Stock
+      ===================================================== */}
 
       <td className="p-3 align-top">
-        <div className="min-w-[120px] rounded-lg bg-slate-50 px-3 py-2 text-sm">
+        <div className="min-w-[120px] rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
           <p>
-            Qty: <span className="font-semibold">{availableQuantity}</span>
+            Qty:{" "}
+            <span className="font-semibold text-slate-900">
+              {availableQuantity}
+            </span>
           </p>
 
           <p className="mt-1">
-            Pieces: <span className="font-semibold">{availablePieces}</span>
+            Pieces:{" "}
+            <span className="font-semibold text-slate-900">
+              {availablePieces}
+            </span>
           </p>
         </div>
       </td>
 
-      {/* Quantity */}
+      {/* =====================================================
+          Quantity
+      ===================================================== */}
 
       <td className="p-3 align-top">
         <input
@@ -56,12 +89,14 @@ function SaleItemRow({ row, index, stocks, onChange, onRemove, canRemove }) {
           step="1"
           value={row.quantity}
           onChange={(event) => onChange(index, "quantity", event.target.value)}
-          className="w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+          className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
           placeholder="Qty"
         />
       </td>
 
-      {/* Pieces */}
+      {/* =====================================================
+          Pieces
+      ===================================================== */}
 
       <td className="p-3 align-top">
         <input
@@ -70,12 +105,14 @@ function SaleItemRow({ row, index, stocks, onChange, onRemove, canRemove }) {
           step="1"
           value={row.pieces}
           onChange={(event) => onChange(index, "pieces", event.target.value)}
-          className="w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+          className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
           placeholder="Pieces"
         />
       </td>
 
-      {/* Price */}
+      {/* =====================================================
+          Selling Price
+      ===================================================== */}
 
       <td className="p-3 align-top">
         <input
@@ -84,20 +121,24 @@ function SaleItemRow({ row, index, stocks, onChange, onRemove, canRemove }) {
           step="0.01"
           value={row.price}
           onChange={(event) => onChange(index, "price", event.target.value)}
-          className="w-28 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+          className="w-28 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
           placeholder="Price"
         />
       </td>
 
-      {/* Total */}
+      {/* =====================================================
+          Total
+      ===================================================== */}
 
       <td className="p-3 align-top">
-        <div className="min-w-[100px] rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+        <div className="min-w-[110px] px-3 py-2 text-sm font-semibold text-slate-900">
           ₹{rowTotal.toFixed(2)}
         </div>
       </td>
 
-      {/* Remove */}
+      {/* =====================================================
+          Remove
+      ===================================================== */}
 
       <td className="p-3 align-top">
         {canRemove && (

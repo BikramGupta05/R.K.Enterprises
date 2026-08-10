@@ -1,24 +1,23 @@
 import mongoose from "mongoose";
 
 import Sale from "../models/Sale.js";
+import Payment from "../models/Payment.js";
 import Seller from "../models/Seller.js";
 import Item from "../models/Item.js";
 import Stock from "../models/Stock.js";
 
 /* =========================================================
-   Helpers
+   HELPERS
 ========================================================= */
 
 const isValidObjectId = (id) => {
   return mongoose.Types.ObjectId.isValid(id);
 };
 
-/*
- * Generate a sale number.
- *
- * Example:
- * SAL-20260810-123456
- */
+/* =========================================================
+   GENERATE SALE NUMBER
+========================================================= */
+
 const generateSaleNumber = () => {
   const date = new Date();
 
@@ -34,6 +33,76 @@ const generateSaleNumber = () => {
 };
 
 /* =========================================================
+   GENERATE PAYMENT NUMBER
+========================================================= */
+
+const generatePaymentNumber = () => {
+  const date = new Date();
+
+  const year = date.getFullYear();
+
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+
+  const day = String(date.getDate()).padStart(2, "0");
+
+  const randomPart = String(Math.floor(100000 + Math.random() * 900000));
+
+  return `PAY-${year}${month}${day}-${randomPart}`;
+};
+
+/* =========================================================
+   CREATE UNIQUE SALE NUMBER
+========================================================= */
+
+const createUniqueSaleNumber = async (session) => {
+  let saleNumber = generateSaleNumber();
+
+  let existingSale = await Sale.findOne({
+    saleNumber,
+  })
+    .session(session)
+    .lean();
+
+  while (existingSale) {
+    saleNumber = generateSaleNumber();
+
+    existingSale = await Sale.findOne({
+      saleNumber,
+    })
+      .session(session)
+      .lean();
+  }
+
+  return saleNumber;
+};
+
+/* =========================================================
+   CREATE UNIQUE PAYMENT NUMBER
+========================================================= */
+
+const createUniquePaymentNumber = async (session) => {
+  let paymentNumber = generatePaymentNumber();
+
+  let existingPayment = await Payment.findOne({
+    paymentNumber,
+  })
+    .session(session)
+    .lean();
+
+  while (existingPayment) {
+    paymentNumber = generatePaymentNumber();
+
+    existingPayment = await Payment.findOne({
+      paymentNumber,
+    })
+      .session(session)
+      .lean();
+  }
+
+  return paymentNumber;
+};
+
+/* =========================================================
    CREATE SALE
 ========================================================= */
 
@@ -41,11 +110,22 @@ export const createSale = async (req, res, next) => {
   const session = await mongoose.startSession();
 
   try {
-    const { sellerId, saleDate, items } = req.body;
+    const {
+      sellerId,
+      saleDate,
+      items,
 
-    /*
-     * Validate seller ID.
-     */
+      /*
+       * NEW PAYMENT FIELDS
+       */
+      paidAmount,
+      paymentMethod,
+    } = req.body;
+
+    /* =====================================================
+       SELLER VALIDATION
+    ===================================================== */
+
     if (!sellerId) {
       return res.status(400).json({
         message: "Seller is required",
@@ -58,19 +138,20 @@ export const createSale = async (req, res, next) => {
       });
     }
 
-    /*
-     * Validate items.
-     */
+    /* =====================================================
+       ITEM VALIDATION
+    ===================================================== */
+
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({
         message: "At least one item is required",
       });
     }
 
-    /*
-     * Make sure the seller belongs
-     * to the logged in user.
-     */
+    /* =====================================================
+       SELLER OWNERSHIP
+    ===================================================== */
+
     const seller = await Seller.findOne({
       _id: sellerId,
       user: req.user.id,
@@ -82,13 +163,42 @@ export const createSale = async (req, res, next) => {
       });
     }
 
-    /*
-     * Merge duplicate item IDs.
-     *
-     * If the frontend accidentally sends
-     * the same item twice, we don't want
-     * two separate stock deductions.
-     */
+    /* =====================================================
+       PAYMENT VALIDATION
+    ===================================================== */
+
+    let finalPaidAmount = 0;
+
+    if (paidAmount !== undefined && paidAmount !== null && paidAmount !== "") {
+      finalPaidAmount = Number(paidAmount);
+    }
+
+    if (!Number.isFinite(finalPaidAmount)) {
+      return res.status(400).json({
+        message: "Paid amount must be a valid number",
+      });
+    }
+
+    if (finalPaidAmount < 0) {
+      return res.status(400).json({
+        message: "Paid amount cannot be negative",
+      });
+    }
+
+    const allowedPaymentMethods = ["Cash", "UPI", "Net Banking", "Other"];
+
+    const finalPaymentMethod = paymentMethod || "Cash";
+
+    if (!allowedPaymentMethods.includes(finalPaymentMethod)) {
+      return res.status(400).json({
+        message: "Invalid payment method",
+      });
+    }
+
+    /* =====================================================
+       MERGE DUPLICATE ITEMS
+    ===================================================== */
+
     const itemMap = new Map();
 
     for (const saleItem of items) {
@@ -142,38 +252,38 @@ export const createSale = async (req, res, next) => {
       } else {
         itemMap.set(saleItem.itemId, {
           itemId: saleItem.itemId,
+
           quantity,
+
           pieces,
+
           price,
         });
       }
     }
 
-    /*
-     * Start MongoDB transaction.
-     *
-     * Either everything succeeds:
-     *
-     * Sale created
-     * Stock decreased
-     *
-     * OR nothing changes.
-     */
+    /* =====================================================
+       START TRANSACTION
+    ===================================================== */
+
     session.startTransaction();
 
     const saleItems = [];
 
     let itemsTotal = 0;
 
-    /*
-     * Process every unique item.
-     */
+    /* =====================================================
+       PROCESS ITEMS
+    ===================================================== */
+
     for (const saleItem of itemMap.values()) {
-      /*
-       * Find the original Item.
-       */
+      /* ---------------------------------------------------
+         FIND ITEM
+      --------------------------------------------------- */
+
       const item = await Item.findOne({
         _id: saleItem.itemId,
+
         user: req.user.id,
       })
         .session(session)
@@ -183,11 +293,13 @@ export const createSale = async (req, res, next) => {
         throw new Error(`Item not found: ${saleItem.itemId}`);
       }
 
-      /*
-       * Find this user's stock.
-       */
+      /* ---------------------------------------------------
+         FIND STOCK
+      --------------------------------------------------- */
+
       const stock = await Stock.findOne({
         user: req.user.id,
+
         item: saleItem.itemId,
       }).session(session);
 
@@ -195,17 +307,19 @@ export const createSale = async (req, res, next) => {
         throw new Error(`No stock available for ${item.title}`);
       }
 
-      /*
-       * IMPORTANT:
-       *
-       * Do not allow selling more
-       * than available stock.
-       */
+      /* ---------------------------------------------------
+         QUANTITY VALIDATION
+      --------------------------------------------------- */
+
       if (saleItem.quantity > stock.quantity) {
         throw new Error(
           `Not enough quantity available for ${item.title}. Available: ${stock.quantity}`,
         );
       }
+
+      /* ---------------------------------------------------
+         PIECES VALIDATION
+      --------------------------------------------------- */
 
       if (saleItem.pieces > stock.pieces) {
         throw new Error(
@@ -213,41 +327,44 @@ export const createSale = async (req, res, next) => {
         );
       }
 
-      /*
-       * Calculate this row's total.
-       *
-       * Price represents price per quantity.
-       *
-       * If quantity is 2 and price is 500:
-       *
-       * 2 × 500 = 1000
-       */
+      /* ---------------------------------------------------
+         CALCULATE ITEM TOTAL
+      --------------------------------------------------- */
+
       const total = saleItem.quantity * saleItem.price;
 
       itemsTotal += total;
 
-      /*
-       * Create historical sale item.
-       */
+      /* ---------------------------------------------------
+         HISTORICAL SALE ITEM
+      --------------------------------------------------- */
+
       saleItems.push({
         item: item._id,
+
         itemName: item.title,
+
         quantity: saleItem.quantity,
+
         pieces: saleItem.pieces,
+
         price: saleItem.price,
+
         total,
       });
 
-      /*
-       * Reduce stock.
-       */
+      /* ---------------------------------------------------
+         REDUCE STOCK
+      --------------------------------------------------- */
+
       stock.quantity -= saleItem.quantity;
 
       stock.pieces -= saleItem.pieces;
 
-      /*
-       * Prevent negative stock.
-       */
+      /* ---------------------------------------------------
+         PREVENT NEGATIVE STOCK
+      --------------------------------------------------- */
+
       if (stock.quantity < 0 || stock.pieces < 0) {
         throw new Error(`Stock cannot become negative for ${item.title}`);
       }
@@ -257,38 +374,52 @@ export const createSale = async (req, res, next) => {
       });
     }
 
-    /*
-     * Final total.
-     */
+    /* =====================================================
+       GRAND TOTAL
+    ===================================================== */
+
     const grandTotal = itemsTotal;
 
-    /*
-     * Generate unique sale number.
-     */
-    let saleNumber = generateSaleNumber();
+    /* =====================================================
+       PAYMENT VALIDATION AGAINST BILL
+    ===================================================== */
 
-    /*
-     * Very unlikely collision protection.
-     */
-    let existingSale = await Sale.findOne({
-      saleNumber,
-    })
-      .session(session)
-      .lean();
-
-    while (existingSale) {
-      saleNumber = generateSaleNumber();
-
-      existingSale = await Sale.findOne({
-        saleNumber,
-      })
-        .session(session)
-        .lean();
+    if (finalPaidAmount > grandTotal) {
+      throw new Error(
+        `Paid amount cannot be greater than the sale total of ₹${grandTotal.toFixed(
+          2,
+        )}`,
+      );
     }
 
-    /*
-     * Create sale.
-     */
+    /* =====================================================
+       CREDIT AMOUNT
+    ===================================================== */
+
+    const creditAmount = Math.max(grandTotal - finalPaidAmount, 0);
+
+    /* =====================================================
+       PAYMENT STATUS
+    ===================================================== */
+
+    let paymentStatus = "CREDIT";
+
+    if (creditAmount === 0) {
+      paymentStatus = "PAID";
+    } else if (finalPaidAmount > 0) {
+      paymentStatus = "PARTIAL";
+    }
+
+    /* =====================================================
+       SALE NUMBER
+    ===================================================== */
+
+    const saleNumber = await createUniqueSaleNumber(session);
+
+    /* =====================================================
+       CREATE SALE
+    ===================================================== */
+
     const sale = new Sale({
       user: req.user.id,
 
@@ -305,33 +436,102 @@ export const createSale = async (req, res, next) => {
       itemsTotal,
 
       grandTotal,
+
+      /*
+       * NEW
+       */
+      paidAmount: finalPaidAmount,
+
+      paymentMethod: finalPaymentMethod,
+
+      creditAmount,
+
+      paymentStatus,
     });
 
     await sale.save({
       session,
     });
 
+    /* =====================================================
+       CREATE INITIAL PAYMENT RECORD
+    ===================================================== */
+
     /*
-     * Commit everything.
+     * If the customer paid something at the time
+     * of sale, create a Payment document too.
+     *
+     * This is extremely important.
+     *
+     * Otherwise Khatabook would know:
+     *
+     * Sale = ₹10,000
+     * Paid = ₹4,000
+     *
+     * but the Payment collection would incorrectly
+     * show ₹0 received.
      */
+
+    if (finalPaidAmount > 0) {
+      const paymentNumber = await createUniquePaymentNumber(session);
+
+      await Payment.create(
+        [
+          {
+            user: req.user.id,
+
+            seller: seller._id,
+
+            sellerName: seller.shopName,
+
+            sale: sale._id,
+
+            paymentNumber,
+
+            paymentDate: saleDate || new Date(),
+
+            amount: finalPaidAmount,
+
+            paymentMethod: finalPaymentMethod,
+
+            notes: "Payment received at the time of sale",
+          },
+        ],
+        {
+          session,
+        },
+      );
+    }
+
+    /* =====================================================
+       COMMIT TRANSACTION
+    ===================================================== */
+
     await session.commitTransaction();
 
-    res.status(201).json({
+    /* =====================================================
+       RESPONSE
+    ===================================================== */
+
+    return res.status(201).json({
       message: "Sale created successfully",
+
       sale,
     });
   } catch (error) {
-    /*
-     * Roll back stock changes
-     * if anything failed.
-     */
-    await session.abortTransaction();
+    /* =====================================================
+       ROLLBACK
+    ===================================================== */
 
-    res.status(400).json({
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+
+    return res.status(400).json({
       message: error.message || "Unable to create sale",
     });
   } finally {
-    session.endSession();
+    await session.endSession();
   }
 };
 
@@ -341,44 +541,16 @@ export const createSale = async (req, res, next) => {
 
 export const getSales = async (req, res, next) => {
   try {
-    const query = {
+    const sales = await Sale.find({
       user: req.user.id,
-    };
-
-    /*
-     * Optional date filtering.
-     *
-     * Example:
-     * /api/sales?from=2026-08-01&to=2026-08-10
-     */
-    if (req.query.from || req.query.to) {
-      query.saleDate = {};
-
-      if (req.query.from) {
-        const fromDate = new Date(req.query.from);
-
-        fromDate.setHours(0, 0, 0, 0);
-
-        query.saleDate.$gte = fromDate;
-      }
-
-      if (req.query.to) {
-        const toDate = new Date(req.query.to);
-
-        toDate.setHours(23, 59, 59, 999);
-
-        query.saleDate.$lte = toDate;
-      }
-    }
-
-    const sales = await Sale.find(query)
+    })
       .sort({
         saleDate: -1,
         createdAt: -1,
       })
       .lean();
 
-    res.json({
+    return res.json({
       sales,
     });
   } catch (error) {
@@ -402,6 +574,7 @@ export const getSaleById = async (req, res, next) => {
 
     const sale = await Sale.findOne({
       _id: id,
+
       user: req.user.id,
     }).lean();
 
@@ -411,7 +584,7 @@ export const getSaleById = async (req, res, next) => {
       });
     }
 
-    res.json({
+    return res.json({
       sale,
     });
   } catch (error) {
@@ -435,17 +608,25 @@ export const getSalesBySeller = async (req, res, next) => {
 
     const query = {
       user: req.user.id,
+
       seller: sellerId,
     };
 
-    /*
-     * Optional date filtering.
-     */
+    /* ---------------------------------------------------
+         DATE FILTER
+      --------------------------------------------------- */
+
     if (req.query.from || req.query.to) {
       query.saleDate = {};
 
       if (req.query.from) {
         const fromDate = new Date(req.query.from);
+
+        if (Number.isNaN(fromDate.getTime())) {
+          return res.status(400).json({
+            message: "Invalid from date",
+          });
+        }
 
         fromDate.setHours(0, 0, 0, 0);
 
@@ -454,6 +635,12 @@ export const getSalesBySeller = async (req, res, next) => {
 
       if (req.query.to) {
         const toDate = new Date(req.query.to);
+
+        if (Number.isNaN(toDate.getTime())) {
+          return res.status(400).json({
+            message: "Invalid to date",
+          });
+        }
 
         toDate.setHours(23, 59, 59, 999);
 
@@ -469,7 +656,7 @@ export const getSalesBySeller = async (req, res, next) => {
       })
       .lean();
 
-    res.json({
+    return res.status(200).json({
       sales,
     });
   } catch (error) {
@@ -493,17 +680,25 @@ export const getSalesByItem = async (req, res, next) => {
 
     const query = {
       user: req.user.id,
+
       "items.item": itemId,
     };
 
-    /*
-     * Optional date filtering.
-     */
+    /* ---------------------------------------------------
+         DATE FILTER
+      --------------------------------------------------- */
+
     if (req.query.from || req.query.to) {
       query.saleDate = {};
 
       if (req.query.from) {
         const fromDate = new Date(req.query.from);
+
+        if (Number.isNaN(fromDate.getTime())) {
+          return res.status(400).json({
+            message: "Invalid from date",
+          });
+        }
 
         fromDate.setHours(0, 0, 0, 0);
 
@@ -512,6 +707,12 @@ export const getSalesByItem = async (req, res, next) => {
 
       if (req.query.to) {
         const toDate = new Date(req.query.to);
+
+        if (Number.isNaN(toDate.getTime())) {
+          return res.status(400).json({
+            message: "Invalid to date",
+          });
+        }
 
         toDate.setHours(23, 59, 59, 999);
 
@@ -529,18 +730,20 @@ export const getSalesByItem = async (req, res, next) => {
 
     /*
      * Return only the requested item
-     * from every sale.
+     * from each sale.
      */
+
     const result = sales.map((sale) => {
       return {
         ...sale,
+
         items: sale.items.filter(
           (saleItem) => saleItem.item?.toString() === itemId,
         ),
       };
     });
 
-    res.json({
+    return res.status(200).json({
       sales: result,
     });
   } catch (error) {
@@ -550,33 +753,6 @@ export const getSalesByItem = async (req, res, next) => {
 
 /* =========================================================
    GET SELLER SALES SUMMARY
-=========================================================
-
-   Returns one row per seller.
-
-   Used by:
-
-   Selling History
-        ↓
-   By Seller
-
-   Example result:
-
-   [
-     {
-       _id: "...",
-       sellerName: "ABC Traders",
-       totalSales: 5,
-       totalAmount: 25000,
-       lastSaleDate: "..."
-     }
-   ]
-
-   Optional:
-
-   ?from=2026-08-01
-   ?to=2026-08-10
-
 ========================================================= */
 
 export const getSellerSalesSummary = async (req, res, next) => {
@@ -585,9 +761,10 @@ export const getSellerSalesSummary = async (req, res, next) => {
       user: new mongoose.Types.ObjectId(req.user.id),
     };
 
-    /*
-     * Date filtering.
-     */
+    /* ---------------------------------------------------
+         DATE FILTER
+      --------------------------------------------------- */
+
     if (req.query.from || req.query.to) {
       match.saleDate = {};
 
@@ -618,19 +795,6 @@ export const getSellerSalesSummary = async (req, res, next) => {
 
         match.saleDate.$lte = toDate;
       }
-    }
-
-    /*
-     * Prevent invalid date ranges.
-     */
-    if (
-      match.saleDate?.$gte &&
-      match.saleDate?.$lte &&
-      match.saleDate.$gte > match.saleDate.$lte
-    ) {
-      return res.status(400).json({
-        message: "From date cannot be greater than to date",
-      });
     }
 
     const result = await Sale.aggregate([
@@ -654,6 +818,14 @@ export const getSellerSalesSummary = async (req, res, next) => {
             $sum: "$grandTotal",
           },
 
+          totalPaid: {
+            $sum: "$paidAmount",
+          },
+
+          totalCredit: {
+            $sum: "$creditAmount",
+          },
+
           lastSaleDate: {
             $max: "$saleDate",
           },
@@ -675,32 +847,6 @@ export const getSellerSalesSummary = async (req, res, next) => {
 
 /* =========================================================
    GET ITEM SALES SUMMARY
-=========================================================
-
-   Returns one row per item.
-
-   Used by:
-
-   Selling History
-        ↓
-   By Item
-
-   Example:
-
-   {
-     itemName: "Neem",
-     totalQuantity: 20,
-     totalPieces: 100,
-     totalAmount: 5000,
-     averagePrice: 250,
-     saleCount: 4
-   }
-
-   Optional:
-
-   ?from=2026-08-01
-   ?to=2026-08-10
-
 ========================================================= */
 
 export const getItemSalesSummary = async (req, res, next) => {
@@ -709,9 +855,10 @@ export const getItemSalesSummary = async (req, res, next) => {
       user: new mongoose.Types.ObjectId(req.user.id),
     };
 
-    /*
-     * Date filtering.
-     */
+    /* ---------------------------------------------------
+         DATE FILTER
+      --------------------------------------------------- */
+
     if (req.query.from || req.query.to) {
       match.saleDate = {};
 
@@ -744,28 +891,11 @@ export const getItemSalesSummary = async (req, res, next) => {
       }
     }
 
-    /*
-     * Prevent invalid date ranges.
-     */
-    if (
-      match.saleDate?.$gte &&
-      match.saleDate?.$lte &&
-      match.saleDate.$gte > match.saleDate.$lte
-    ) {
-      return res.status(400).json({
-        message: "From date cannot be greater than to date",
-      });
-    }
-
     const result = await Sale.aggregate([
       {
         $match: match,
       },
 
-      /*
-       * One document for every item
-       * inside every sale.
-       */
       {
         $unwind: "$items",
       },

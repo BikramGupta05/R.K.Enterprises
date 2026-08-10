@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-
 import { useNavigate } from "react-router-dom";
 
 import SaleItemRow from "../components/SaleItemRow.jsx";
@@ -7,8 +6,43 @@ import useSales from "../hooks/useSales.js";
 import useSellers from "../hooks/useSellers.js";
 import useStock from "../hooks/useStock.js";
 
+/* =========================================================
+   Constants
+========================================================= */
+
+const EMPTY_ROW = {
+  itemId: "",
+  quantity: "",
+  pieces: "",
+  price: "",
+};
+
+const PAYMENT_METHODS = ["Cash", "UPI", "Net Banking", "Other"];
+
+/* =========================================================
+   Helpers
+========================================================= */
+
+const getTodayDate = () => {
+  const today = new Date();
+
+  return today.toISOString().split("T")[0];
+};
+
+const createEmptyRow = () => ({
+  ...EMPTY_ROW,
+});
+
+/* =========================================================
+   Selling
+========================================================= */
+
 function Selling() {
   const navigate = useNavigate();
+
+  /* =======================================================
+     Hooks
+  ======================================================= */
 
   const { sellers, loading: sellersLoading } = useSellers();
 
@@ -16,28 +50,33 @@ function Selling() {
 
   const { saving, error: saleError, addSale } = useSales();
 
+  /* =======================================================
+     Sale State
+  ======================================================= */
+
   const [sellerId, setSellerId] = useState("");
 
-  const [saleDate, setSaleDate] = useState(() => {
-    const today = new Date();
-
-    return today.toISOString().split("T")[0];
-  });
-
-  const createEmptyRow = () => ({
-    itemId: "",
-    quantity: "",
-    pieces: "",
-    price: "",
-  });
+  const [saleDate, setSaleDate] = useState(getTodayDate);
 
   const [rows, setRows] = useState([createEmptyRow()]);
 
+  /* =======================================================
+     Payment State
+  ======================================================= */
+
+  const [paidAmount, setPaidAmount] = useState("");
+
+  const [paymentMethod, setPaymentMethod] = useState("Cash");
+
+  /* =======================================================
+     Error
+  ======================================================= */
+
   const [error, setError] = useState("");
 
-  /* =========================================================
-     Available stocks
-  ========================================================= */
+  /* =======================================================
+     Available Stock
+  ======================================================= */
 
   const availableStocks = useMemo(() => {
     return stocks
@@ -49,9 +88,9 @@ function Selling() {
       );
   }, [stocks]);
 
-  /* =========================================================
-     Calculate Total
-  ========================================================= */
+  /* =======================================================
+     Bill Total
+  ======================================================= */
 
   const itemsTotal = useMemo(() => {
     return rows.reduce((total, row) => {
@@ -63,65 +102,135 @@ function Selling() {
     }, 0);
   }, [rows]);
 
-  /* =========================================================
-     Change Row
-  ========================================================= */
+  const grandTotal = itemsTotal;
+
+  /* =======================================================
+     Payment Calculations
+  ======================================================= */
+
+  const numericPaidAmount = Number(paidAmount) || 0;
+
+  const creditAmount = Math.max(grandTotal - numericPaidAmount, 0);
+
+  const paymentStatus =
+    creditAmount === 0 ? "PAID" : numericPaidAmount > 0 ? "PARTIAL" : "CREDIT";
+
+  /* =======================================================
+     Loading
+  ======================================================= */
+
+  const loading = sellersLoading || stockLoading;
+
+  /* =======================================================
+     Row Change
+  ======================================================= */
 
   const handleRowChange = (index, field, value) => {
-    setRows((current) => {
-      const updated = [...current];
+    setRows((currentRows) => {
+      const updatedRows = [...currentRows];
 
-      updated[index] = {
-        ...updated[index],
+      updatedRows[index] = {
+        ...updatedRows[index],
         [field]: value,
       };
 
-      /*
-       * When an item changes,
-       * reset quantity and pieces
-       * so old values don't carry over.
-       */
       if (field === "itemId") {
-        updated[index] = {
-          ...updated[index],
+        updatedRows[index] = {
+          ...updatedRows[index],
           itemId: value,
           quantity: "",
           pieces: "",
         };
       }
 
-      return updated;
+      return updatedRows;
     });
   };
 
-  /* =========================================================
+  /* =======================================================
      Add Row
-  ========================================================= */
+  ======================================================= */
 
   const handleAddRow = () => {
-    setRows((current) => [...current, createEmptyRow()]);
+    setRows((currentRows) => [...currentRows, createEmptyRow()]);
   };
 
-  /* =========================================================
+  /* =======================================================
      Remove Row
-  ========================================================= */
+  ======================================================= */
 
   const handleRemoveRow = (index) => {
-    setRows((current) => current.filter((_, rowIndex) => rowIndex !== index));
+    setRows((currentRows) =>
+      currentRows.filter((_, rowIndex) => rowIndex !== index),
+    );
   };
 
-  /* =========================================================
-     Validate
-  ========================================================= */
+  /* =======================================================
+     Payment Change
+  ======================================================= */
+
+  const handlePaidAmountChange = (event) => {
+    const value = event.target.value;
+
+    /*
+     * Allow the user to clear
+     * the field while typing.
+     */
+    if (value === "") {
+      setPaidAmount("");
+      return;
+    }
+
+    const amount = Number(value);
+
+    if (!Number.isFinite(amount)) {
+      return;
+    }
+
+    /*
+     * Do not allow negative values.
+     */
+    if (amount < 0) {
+      return;
+    }
+
+    /*
+     * Do not allow payment greater
+     * than the bill.
+     */
+    if (amount > grandTotal) {
+      setPaidAmount(grandTotal.toFixed(2));
+
+      return;
+    }
+
+    setPaidAmount(value);
+  };
+
+  /* =======================================================
+     Validation
+  ======================================================= */
 
   const validateForm = () => {
+    /* -------------------------------------------------------
+       Seller
+    ------------------------------------------------------- */
+
     if (!sellerId) {
       return "Please select a seller.";
     }
 
+    /* -------------------------------------------------------
+       Date
+    ------------------------------------------------------- */
+
     if (!saleDate) {
       return "Please select a sale date.";
     }
+
+    /* -------------------------------------------------------
+       Items
+    ------------------------------------------------------- */
 
     if (rows.length === 0) {
       return "Please add at least one item.";
@@ -132,19 +241,27 @@ function Selling() {
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
 
+      /* -----------------------------------------------------
+         Item
+      ----------------------------------------------------- */
+
       if (!row.itemId) {
         return `Please select an item in row ${index + 1}.`;
       }
 
-      /*
-       * Don't allow duplicate items
-       * in the same sale.
-       */
+      /* -----------------------------------------------------
+         Duplicate Item
+      ----------------------------------------------------- */
+
       if (selectedItemIds.has(row.itemId)) {
-        return `Item "${row.itemId}" is added more than once.`;
+        return `The same item cannot be added twice. Row ${index + 1}.`;
       }
 
       selectedItemIds.add(row.itemId);
+
+      /* -----------------------------------------------------
+         Values
+      ----------------------------------------------------- */
 
       const quantity = Number(row.quantity) || 0;
 
@@ -164,29 +281,59 @@ function Selling() {
         return `Please enter a selling price for row ${index + 1}.`;
       }
 
-      const stock = stocks.find(
-        (stock) => (stock.item?._id || stock.item) === row.itemId,
-      );
+      /* -----------------------------------------------------
+         Stock
+      ----------------------------------------------------- */
+
+      const stock = stocks.find((currentStock) => {
+        const currentItemId = currentStock.item?._id || currentStock.item;
+
+        return currentItemId === row.itemId;
+      });
 
       if (!stock) {
         return `Stock not found for row ${index + 1}.`;
       }
 
       if (quantity > Number(stock.quantity)) {
-        return `You cannot sell ${quantity} quantity of ${stock.itemName}. Only ${stock.quantity} is available.`;
+        return (
+          `You cannot sell ${quantity} quantity of ` +
+          `${stock.itemName}. Only ${stock.quantity} is available.`
+        );
       }
 
       if (pieces > Number(stock.pieces)) {
-        return `You cannot sell ${pieces} pieces of ${stock.itemName}. Only ${stock.pieces} are available.`;
+        return (
+          `You cannot sell ${pieces} pieces of ` +
+          `${stock.itemName}. Only ${stock.pieces} are available.`
+        );
       }
+    }
+
+    /* -------------------------------------------------------
+       Payment
+    ------------------------------------------------------- */
+
+    const amount = Number(paidAmount) || 0;
+
+    if (amount < 0) {
+      return "Paid amount cannot be negative.";
+    }
+
+    if (amount > grandTotal) {
+      return "Paid amount cannot be greater than " + "the final bill amount.";
+    }
+
+    if (!PAYMENT_METHODS.includes(paymentMethod)) {
+      return "Please select a valid payment method.";
     }
 
     return "";
   };
 
-  /* =========================================================
-     Submit Sale
-  ========================================================= */
+  /* =======================================================
+     Submit
+  ======================================================= */
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -200,6 +347,10 @@ function Selling() {
 
       return;
     }
+
+    /* -------------------------------------------------------
+       Sale Payload
+    ------------------------------------------------------- */
 
     const saleData = {
       sellerId,
@@ -215,29 +366,33 @@ function Selling() {
 
         price: Number(row.price) || 0,
       })),
+
+      /*
+       * NEW PAYMENT DATA
+       */
+      paidAmount: Number(paidAmount) || 0,
+
+      paymentMethod,
     };
+
+    /* -------------------------------------------------------
+       Save Sale
+    ------------------------------------------------------- */
 
     const result = await addSale(saleData);
 
     if (result.success) {
-      /*
-       * Sale was successfully saved.
-       *
-       * Backend has already decreased
-       * the stock inside the transaction.
-       */
-
       navigate("/selling-history");
-    } else {
-      setError(result.error || "Unable to create sale.");
+
+      return;
     }
+
+    setError(result.error || "Unable to create sale.");
   };
 
-  /* =========================================================
-     UI
-  ========================================================= */
-
-  const loading = sellersLoading || stockLoading;
+  /* =======================================================
+     Render
+  ======================================================= */
 
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-8">
@@ -265,7 +420,7 @@ function Selling() {
         </div>
 
         {/* =================================================
-            Main Card
+            Main
         ================================================= */}
 
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
@@ -325,7 +480,7 @@ function Selling() {
           ================================================= */}
 
           {(error || saleError) && (
-            <div className="mb-6 rounded-xl bg-red-50 p-4 text-sm text-red-700">
+            <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
               {error || saleError}
             </div>
           )}
@@ -349,47 +504,49 @@ function Selling() {
           ) : (
             <>
               {/* =================================================
-                  Table
+                  Items
               ================================================= */}
 
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[1050px] border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-300 bg-slate-50 text-left text-sm text-slate-600">
-                      <th className="p-3 font-semibold">Item</th>
+              <section>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[1050px] border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-300 bg-slate-50 text-left text-sm text-slate-600">
+                        <th className="p-3 font-semibold">Item</th>
 
-                      <th className="p-3 font-semibold">Available</th>
+                        <th className="p-3 font-semibold">Available</th>
 
-                      <th className="p-3 font-semibold">Quantity</th>
+                        <th className="p-3 font-semibold">Quantity</th>
 
-                      <th className="p-3 font-semibold">Pieces</th>
+                        <th className="p-3 font-semibold">Pieces</th>
 
-                      <th className="p-3 font-semibold">Price</th>
+                        <th className="p-3 font-semibold">Price</th>
 
-                      <th className="p-3 font-semibold">Total</th>
+                        <th className="p-3 font-semibold">Total</th>
 
-                      <th className="p-3 font-semibold">Action</th>
-                    </tr>
-                  </thead>
+                        <th className="p-3 font-semibold">Action</th>
+                      </tr>
+                    </thead>
 
-                  <tbody>
-                    {rows.map((row, index) => (
-                      <SaleItemRow
-                        key={`${index}-${row.itemId}`}
-                        row={row}
-                        index={index}
-                        stocks={availableStocks}
-                        onChange={handleRowChange}
-                        onRemove={handleRemoveRow}
-                        canRemove={rows.length > 1}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    <tbody>
+                      {rows.map((row, index) => (
+                        <SaleItemRow
+                          key={`${index}-${row.itemId}`}
+                          row={row}
+                          index={index}
+                          stocks={availableStocks}
+                          onChange={handleRowChange}
+                          onRemove={handleRemoveRow}
+                          canRemove={rows.length > 1}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
 
               {/* =================================================
-                  Add More
+                  Add Item
               ================================================= */}
 
               <div className="mt-5">
@@ -403,32 +560,147 @@ function Selling() {
               </div>
 
               {/* =================================================
-                  Total
+                  BILL SUMMARY
               ================================================= */}
 
-              <div className="mt-8 flex justify-end">
-                <div className="w-full max-w-sm rounded-2xl bg-slate-50 p-5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Items Total</span>
+              <section className="mt-8 border-t border-slate-200 pt-8">
+                <div className="grid gap-8 lg:grid-cols-2">
+                  {/* =================================================
+                      Bill Summary
+                  ================================================= */}
 
-                    <span className="text-xl font-bold text-slate-900">
-                      ₹{itemsTotal.toFixed(2)}
-                    </span>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">
+                      Bill Summary
+                    </h2>
+
+                    <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+                      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+                        <span className="text-slate-600">Items Total</span>
+
+                        <span className="font-semibold text-slate-900">
+                          ₹{itemsTotal.toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between bg-slate-50 px-5 py-5">
+                        <span className="text-lg font-bold text-slate-900">
+                          Final Total
+                        </span>
+
+                        <span className="text-2xl font-bold text-slate-900">
+                          ₹{grandTotal.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="my-4 border-t border-slate-200" />
+                  {/* =================================================
+                      Payment Details
+                  ================================================= */}
 
-                  <div className="flex items-center justify-between">
-                    <span className="text-lg font-semibold text-slate-900">
-                      Final Total
-                    </span>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">
+                      Payment Details
+                    </h2>
 
-                    <span className="text-2xl font-bold text-slate-900">
-                      ₹{itemsTotal.toFixed(2)}
-                    </span>
+                    <div className="mt-4 space-y-5 rounded-xl border border-slate-200 p-5">
+                      {/* Paid Amount */}
+
+                      <div>
+                        <label
+                          htmlFor="paid-amount"
+                          className="text-sm font-semibold text-slate-700"
+                        >
+                          Paid Amount
+                        </label>
+
+                        <div className="relative mt-2">
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
+                            ₹
+                          </span>
+
+                          <input
+                            id="paid-amount"
+                            type="number"
+                            min="0"
+                            max={grandTotal}
+                            step="0.01"
+                            value={paidAmount}
+                            onChange={handlePaidAmountChange}
+                            placeholder="0.00"
+                            className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-9 pr-4 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                          />
+                        </div>
+
+                        <p className="mt-1 text-xs text-slate-500">
+                          Maximum payment: ₹{grandTotal.toFixed(2)}
+                        </p>
+                      </div>
+
+                      {/* Payment Method */}
+
+                      <div>
+                        <label
+                          htmlFor="payment-method"
+                          className="text-sm font-semibold text-slate-700"
+                        >
+                          Payment Method
+                        </label>
+
+                        <select
+                          id="payment-method"
+                          value={paymentMethod}
+                          onChange={(event) =>
+                            setPaymentMethod(event.target.value)
+                          }
+                          className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                        >
+                          {PAYMENT_METHODS.map((method) => (
+                            <option key={method} value={method}>
+                              {method}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Remaining */}
+
+                      <div className="rounded-xl bg-amber-50 px-5 py-4">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-amber-800">
+                            Remaining Amount
+                          </span>
+
+                          <span className="text-xl font-bold text-amber-900">
+                            ₹{creditAmount.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Status */}
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-slate-700">
+                          Payment Status
+                        </span>
+
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-bold ${
+                            paymentStatus === "PAID"
+                              ? "bg-green-100 text-green-700"
+                              : paymentStatus === "PARTIAL"
+                                ? "bg-yellow-100 text-yellow-700"
+                                : "bg-red-100 text-red-700"
+                          }`}
+                        >
+                          {paymentStatus}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
+              </section>
 
               {/* =================================================
                   Save
@@ -437,7 +709,7 @@ function Selling() {
               <div className="mt-8 flex justify-end">
                 <button
                   type="button"
-                  disabled={saving}
+                  disabled={saving || grandTotal <= 0}
                   onClick={handleSubmit}
                   className="rounded-xl bg-slate-900 px-8 py-3 font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >

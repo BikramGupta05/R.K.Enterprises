@@ -3,13 +3,58 @@ import { useCallback, useEffect, useState } from "react";
 import {
   getSales,
   getSaleById,
+  createSale,
+  updateSale,
+  deleteSale,
   getSalesBySeller,
   getSalesByItem,
-  createSale,
+  getSellerSalesSummary,
+  getItemSalesSummary,
 } from "../api/sale.js";
 
+import { useAuth } from "../contexts/AuthContext.jsx";
+
+/* =========================================================
+   Default Summary
+========================================================= */
+
+const DEFAULT_SUMMARY = {
+  totalSales: 0,
+  totalAmount: 0,
+  totalPaid: 0,
+  totalCredit: 0,
+};
+
+/* =========================================================
+   Error Helper
+========================================================= */
+
+const getErrorMessage = (error, fallback) => {
+  return error?.response?.data?.message || error?.message || fallback;
+};
+
+/* =========================================================
+   useSales
+========================================================= */
+
 function useSales() {
+  /* =======================================================
+     Authentication
+  ======================================================= */
+
+  const { accessToken, loading: authLoading } = useAuth();
+
+  /* =======================================================
+     State
+  ======================================================= */
+
   const [sales, setSales] = useState([]);
+
+  const [sellerSummary, setSellerSummary] = useState([]);
+
+  const [itemSummary, setItemSummary] = useState([]);
+
+  const [summary, setSummary] = useState(DEFAULT_SUMMARY);
 
   const [loading, setLoading] = useState(true);
 
@@ -17,62 +62,162 @@ function useSales() {
 
   const [error, setError] = useState("");
 
-  /* =========================================================
-     Load All Sales
-  ========================================================= */
+  /* =======================================================
+     Calculate Summary
+  ======================================================= */
 
-  const loadSales = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError("");
-
-      const response = await getSales();
-
-      const salesData = Array.isArray(response.sales) ? response.sales : [];
-
-      setSales(salesData);
-    } catch (err) {
-      setError(err.response?.data?.message || "Unable to load sales.");
-    } finally {
-      setLoading(false);
+  const calculateSummary = useCallback((salesList) => {
+    if (!Array.isArray(salesList) || salesList.length === 0) {
+      return {
+        ...DEFAULT_SUMMARY,
+      };
     }
+
+    return salesList.reduce(
+      (result, sale) => {
+        result.totalSales += 1;
+
+        result.totalAmount += Number(sale?.grandTotal) || 0;
+
+        result.totalPaid += Number(sale?.paidAmount) || 0;
+
+        result.totalCredit += Number(sale?.creditAmount) || 0;
+
+        return result;
+      },
+      {
+        ...DEFAULT_SUMMARY,
+      },
+    );
   }, []);
 
-  /* =========================================================
+  /* =======================================================
+     Fetch All Sales
+  ======================================================= */
+
+  const fetchSales = useCallback(
+    async (filters = {}) => {
+      /*
+       * Wait for AuthProvider.
+       */
+      if (authLoading) {
+        return {
+          success: false,
+          skipped: true,
+          sales: [],
+        };
+      }
+
+      /*
+       * No session.
+       */
+      if (!accessToken) {
+        setSales([]);
+        setSummary(DEFAULT_SUMMARY);
+        setLoading(false);
+
+        return {
+          success: false,
+          skipped: true,
+          sales: [],
+          error: "Authentication required.",
+        };
+      }
+
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await getSales(filters);
+
+        const salesData = Array.isArray(response?.sales) ? response.sales : [];
+
+        setSales(salesData);
+
+        setSummary(calculateSummary(salesData));
+
+        return {
+          success: true,
+          sales: salesData,
+          summary: calculateSummary(salesData),
+        };
+      } catch (err) {
+        console.error("Failed to fetch sales:", err);
+
+        const message = getErrorMessage(err, "Failed to load sales.");
+
+        setError(message);
+
+        return {
+          success: false,
+          sales: [],
+          error: message,
+        };
+      } finally {
+        setLoading(false);
+      }
+    },
+    [accessToken, authLoading, calculateSummary],
+  );
+
+  /* =======================================================
      Initial Load
-  ========================================================= */
+  ======================================================= */
 
   useEffect(() => {
-    loadSales();
-  }, [loadSales]);
+    if (authLoading) {
+      setLoading(true);
+      return;
+    }
 
-  /* =========================================================
+    if (!accessToken) {
+      setSales([]);
+      setSummary(DEFAULT_SUMMARY);
+      setLoading(false);
+      return;
+    }
+
+    fetchSales();
+  }, [authLoading, accessToken, fetchSales]);
+
+  /* =======================================================
      Create Sale
-  ========================================================= */
+  ======================================================= */
 
   const addSale = async (saleData) => {
+    if (authLoading || !accessToken) {
+      const message = "Authentication required.";
+
+      setError(message);
+
+      return {
+        success: false,
+        error: message,
+      };
+    }
+
     try {
       setSaving(true);
       setError("");
 
       const response = await createSale(saleData);
 
-      if (response.sale) {
-        setSales((current) => [response.sale, ...current]);
-      }
+      await fetchSales();
 
       return {
         success: true,
-        sale: response.sale,
+        sale: response?.sale || null,
+        message: response?.message || "Sale created successfully.",
       };
     } catch (err) {
-      const message = err.response?.data?.message || "Unable to create sale.";
+      console.error("Failed to create sale:", err);
+
+      const message = getErrorMessage(err, "Failed to create sale.");
 
       setError(message);
 
       return {
         success: false,
-        sale: null,
         error: message,
       };
     } finally {
@@ -80,64 +225,432 @@ function useSales() {
     }
   };
 
-  /* =========================================================
+  /* =======================================================
      Get Sale By ID
-  ========================================================= */
+  ======================================================= */
 
-  const fetchSaleById = async (id) => {
+  const fetchSaleById = useCallback(
+    async (id) => {
+      if (!id) {
+        const message = "Sale ID is required.";
+
+        setError(message);
+
+        return {
+          success: false,
+          sale: null,
+          error: message,
+        };
+      }
+
+      if (authLoading || !accessToken) {
+        return {
+          success: false,
+          sale: null,
+          error: "Authentication required.",
+        };
+      }
+
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await getSaleById(id);
+
+        return {
+          success: true,
+          sale: response?.sale || null,
+        };
+      } catch (err) {
+        console.error("Failed to fetch sale:", err);
+
+        const message = getErrorMessage(err, "Failed to load sale.");
+
+        setError(message);
+
+        return {
+          success: false,
+          sale: null,
+          error: message,
+        };
+      } finally {
+        setLoading(false);
+      }
+    },
+    [accessToken, authLoading],
+  );
+
+  /* =======================================================
+     Update Sale
+  ======================================================= */
+
+  const editSale = async (id, saleData) => {
+    if (!id) {
+      const message = "Sale ID is required.";
+
+      setError(message);
+
+      return {
+        success: false,
+        error: message,
+      };
+    }
+
+    if (authLoading || !accessToken) {
+      return {
+        success: false,
+        error: "Authentication required.",
+      };
+    }
+
     try {
-      const response = await getSaleById(id);
+      setSaving(true);
+      setError("");
 
-      return response.sale;
+      const response = await updateSale(id, saleData);
+
+      await fetchSales();
+
+      return {
+        success: true,
+        sale: response?.sale || null,
+        message: response?.message || "Sale updated successfully.",
+      };
     } catch (err) {
-      setError(err.response?.data?.message || "Unable to load sale.");
+      console.error("Failed to update sale:", err);
 
-      return null;
+      const message = getErrorMessage(err, "Failed to update sale.");
+
+      setError(message);
+
+      return {
+        success: false,
+        error: message,
+      };
+    } finally {
+      setSaving(false);
     }
   };
 
-  /* =========================================================
-     Get Sales By Seller
-  ========================================================= */
+  /* =======================================================
+     Delete Sale
+  ======================================================= */
 
-  const fetchSalesBySeller = async (sellerId) => {
+  const removeSale = async (id) => {
+    if (!id) {
+      const message = "Sale ID is required.";
+
+      setError(message);
+
+      return {
+        success: false,
+        error: message,
+      };
+    }
+
+    if (authLoading || !accessToken) {
+      return {
+        success: false,
+        error: "Authentication required.",
+      };
+    }
+
     try {
-      const response = await getSalesBySeller(sellerId);
+      setSaving(true);
+      setError("");
 
-      return Array.isArray(response.sales) ? response.sales : [];
+      const response = await deleteSale(id);
+
+      await fetchSales();
+
+      return {
+        success: true,
+        message: response?.message || "Sale deleted successfully.",
+      };
     } catch (err) {
-      setError(err.response?.data?.message || "Unable to load seller sales.");
+      console.error("Failed to delete sale:", err);
 
-      return [];
+      const message = getErrorMessage(err, "Failed to delete sale.");
+
+      setError(message);
+
+      return {
+        success: false,
+        error: message,
+      };
+    } finally {
+      setSaving(false);
     }
   };
 
-  /* =========================================================
-     Get Sales By Item
-  ========================================================= */
+  /* =======================================================
+     Sales By Seller
+  ======================================================= */
 
-  const fetchSalesByItem = async (itemId) => {
-    try {
-      const response = await getSalesByItem(itemId);
+  const fetchSalesBySeller = useCallback(
+    async (sellerId, filters = {}) => {
+      if (!sellerId) {
+        return {
+          success: false,
+          sales: [],
+          error: "Seller ID is required.",
+        };
+      }
 
-      return Array.isArray(response.sales) ? response.sales : [];
-    } catch (err) {
-      setError(err.response?.data?.message || "Unable to load item sales.");
+      if (authLoading || !accessToken) {
+        return {
+          success: false,
+          sales: [],
+          error: "Authentication required.",
+        };
+      }
 
-      return [];
-    }
-  };
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await getSalesBySeller(sellerId, filters);
+
+        const sellerSales = Array.isArray(response)
+          ? response
+          : response?.sales || [];
+
+        return {
+          success: true,
+          sales: sellerSales,
+        };
+      } catch (err) {
+        console.error("Failed to fetch seller sales:", err);
+
+        const message = getErrorMessage(err, "Failed to load seller sales.");
+
+        setError(message);
+
+        return {
+          success: false,
+          sales: [],
+          error: message,
+        };
+      } finally {
+        setLoading(false);
+      }
+    },
+    [authLoading, accessToken],
+  );
+
+  /* =======================================================
+     Sales By Item
+  ======================================================= */
+
+  const fetchSalesByItem = useCallback(
+    async (itemId, filters = {}) => {
+      if (!itemId) {
+        return {
+          success: false,
+          sales: [],
+          error: "Item ID is required.",
+        };
+      }
+
+      if (authLoading || !accessToken) {
+        return {
+          success: false,
+          sales: [],
+          error: "Authentication required.",
+        };
+      }
+
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await getSalesByItem(itemId, filters);
+
+        const itemSales = Array.isArray(response)
+          ? response
+          : response?.sales || [];
+
+        return {
+          success: true,
+          sales: itemSales,
+        };
+      } catch (err) {
+        console.error("Failed to fetch item sales:", err);
+
+        const message = getErrorMessage(err, "Failed to load item sales.");
+
+        setError(message);
+
+        return {
+          success: false,
+          sales: [],
+          error: message,
+        };
+      } finally {
+        setLoading(false);
+      }
+    },
+    [authLoading, accessToken],
+  );
+
+  /* =======================================================
+     Seller Summary
+  ======================================================= */
+
+  const fetchSellerSummary = useCallback(
+    async (filters = {}) => {
+      if (authLoading || !accessToken) {
+        return {
+          success: false,
+          summary: [],
+          error: "Authentication required.",
+        };
+      }
+
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await getSellerSalesSummary(filters);
+
+        const result = Array.isArray(response)
+          ? response
+          : response?.data || [];
+
+        setSellerSummary(result);
+
+        return {
+          success: true,
+          summary: result,
+        };
+      } catch (err) {
+        console.error("Failed to fetch seller summary:", err);
+
+        const message = getErrorMessage(err, "Failed to load seller summary.");
+
+        setError(message);
+
+        setSellerSummary([]);
+
+        return {
+          success: false,
+          summary: [],
+          error: message,
+        };
+      } finally {
+        setLoading(false);
+      }
+    },
+    [authLoading, accessToken],
+  );
+
+  /* =======================================================
+     Item Summary
+  ======================================================= */
+
+  const fetchItemSummary = useCallback(
+    async (filters = {}) => {
+      if (authLoading || !accessToken) {
+        return {
+          success: false,
+          summary: [],
+          error: "Authentication required.",
+        };
+      }
+
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await getItemSalesSummary(filters);
+
+        const result = Array.isArray(response)
+          ? response
+          : response?.data || [];
+
+        setItemSummary(result);
+
+        return {
+          success: true,
+          summary: result,
+        };
+      } catch (err) {
+        console.error("Failed to fetch item summary:", err);
+
+        const message = getErrorMessage(err, "Failed to load item summary.");
+
+        setError(message);
+
+        setItemSummary([]);
+
+        return {
+          success: false,
+          summary: [],
+          error: message,
+        };
+      } finally {
+        setLoading(false);
+      }
+    },
+    [authLoading, accessToken],
+  );
+
+  /* =======================================================
+     Refresh Summary
+  ======================================================= */
+
+  const refreshSummary = useCallback(() => {
+    const result = calculateSummary(sales);
+
+    setSummary(result);
+
+    return result;
+  }, [sales, calculateSummary]);
+
+  /* =======================================================
+     Return
+  ======================================================= */
 
   return {
     sales,
+
+    sellerSummary,
+
+    itemSummary,
+
+    summary,
+
     loading,
+
     saving,
+
     error,
-    loadSales,
+
+    authenticated: Boolean(accessToken),
+
+    authLoading,
+
+    fetchSales,
+
     addSale,
+
     fetchSaleById,
+
+    editSale,
+
+    removeSale,
+
     fetchSalesBySeller,
+
     fetchSalesByItem,
+
+    fetchSellerSummary,
+
+    fetchItemSummary,
+
+    refreshSummary,
+
+    calculateSummary,
   };
 }
 

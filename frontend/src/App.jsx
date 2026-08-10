@@ -17,6 +17,8 @@ import Stock from "./routes/Stock.jsx";
 import Selling from "./routes/Selling.jsx";
 import SellingHistory from "./routes/SellingHistory.jsx";
 import Expenditure from "./routes/Expenditure.jsx";
+import Khatabook from "./routes/Khatabook.jsx";
+import KhatabookSeller from "./routes/KhatabookSeller.jsx";
 
 function ProtectedRoute({ children }) {
   const { accessToken, loading } = useAuth();
@@ -131,6 +133,8 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/khatabook" element={<Khatabook />} />
+        <Route path="/khatabook/:sellerId" element={<KhatabookSeller />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>

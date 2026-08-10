@@ -244,6 +244,21 @@ function Dashboard() {
                 Track and analyse your business expenses.
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => navigate("/khatabook")}
+              className="rounded-2xl border border-slate-200 bg-white p-6 text-left shadow-sm transition hover:-translate-y-1 hover:shadow-md"
+            >
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-amber-50 text-2xl">
+                📒
+              </div>
+
+              <h3 className="text-lg font-bold text-slate-900">Khatabook</h3>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Manage seller credit, payments and outstanding balances.
+              </p>
+            </button>
           </div>
         </div>
       </div>
