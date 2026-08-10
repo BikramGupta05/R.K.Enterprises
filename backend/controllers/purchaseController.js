@@ -1,9 +1,56 @@
 import mongoose from "mongoose";
-
 import Purchase from "../models/Purchase.js";
 import Buyer from "../models/Buyer.js";
 import Item from "../models/Item.js";
 import Stock from "../models/Stock.js";
+
+const getUserId = (req) => {
+  const userId = req.user?._id || req.user?.id;
+
+  if (!userId) {
+    return null;
+  }
+
+  if (userId instanceof mongoose.Types.ObjectId) {
+    return userId;
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    return null;
+  }
+
+  return new mongoose.Types.ObjectId(userId);
+};
+
+const buildPurchaseDateFilter = (from, to) => {
+  if (!from && !to) {
+    return null;
+  }
+
+  const purchaseDate = {};
+
+  if (from) {
+    const fromDate = new Date(`${from}T00:00:00.000`);
+
+    if (Number.isNaN(fromDate.getTime())) {
+      throw new Error("Invalid from date");
+    }
+
+    purchaseDate.$gte = fromDate;
+  }
+
+  if (to) {
+    const toDate = new Date(`${to}T23:59:59.999`);
+
+    if (Number.isNaN(toDate.getTime())) {
+      throw new Error("Invalid to date");
+    }
+
+    purchaseDate.$lte = toDate;
+  }
+
+  return purchaseDate;
+};
 
 /* =========================================================
    Helpers
@@ -638,5 +685,407 @@ export const deletePurchase = async (req, res, next) => {
     next(error);
   } finally {
     await session.endSession();
+  }
+};
+
+/* =========================================================
+   GET PURCHASE SUMMARY BY BUYER
+========================================================= */
+
+export const getPurchaseSummaryByBuyer = async (req, res, next) => {
+  try {
+    const userId = getUserId(req);
+
+    if (!userId) {
+      return res.status(401).json({
+        message: "User authentication required",
+      });
+    }
+
+    const { from, to } = req.query;
+
+    const match = {
+      user: userId,
+    };
+
+    const purchaseDate = buildPurchaseDateFilter(from, to);
+
+    if (purchaseDate) {
+      match.purchaseDate = purchaseDate;
+    }
+
+    console.log("Buyer summary match:", match);
+
+    const buyers = await Purchase.aggregate([
+      {
+        $match: match,
+      },
+
+      {
+        $group: {
+          _id: "$buyer",
+
+          buyerName: {
+            $first: "$buyerName",
+          },
+
+          totalPurchases: {
+            $sum: 1,
+          },
+
+          totalAmount: {
+            $sum: {
+              $ifNull: ["$grandTotal", 0],
+            },
+          },
+
+          lastPurchaseDate: {
+            $max: "$purchaseDate",
+          },
+        },
+      },
+
+      {
+        $sort: {
+          buyerName: 1,
+        },
+      },
+    ]);
+
+    console.log("Buyer summary result:", buyers);
+
+    return res.status(200).json({
+      buyers,
+    });
+  } catch (error) {
+    console.error("getPurchaseSummaryByBuyer error:", error);
+
+    next(error);
+  }
+};
+
+/* =========================================================
+   GET PURCHASE HISTORY BY BUYER
+========================================================= */
+
+export const getPurchaseHistoryByBuyer = async (req, res, next) => {
+  try {
+    const { buyerId } = req.params;
+    const { from, to } = req.query;
+
+    const match = {
+      user: req.user.id,
+      buyer: buyerId,
+    };
+
+    /*
+     * Date filter
+     */
+    if (from || to) {
+      match.purchaseDate = {};
+
+      if (from) {
+        const fromDate = new Date(`${from}T00:00:00.000`);
+
+        if (Number.isNaN(fromDate.getTime())) {
+          return res.status(400).json({
+            message: "Invalid from date",
+          });
+        }
+
+        match.purchaseDate.$gte = fromDate;
+      }
+
+      if (to) {
+        const toDate = new Date(`${to}T23:59:59.999`);
+
+        if (Number.isNaN(toDate.getTime())) {
+          return res.status(400).json({
+            message: "Invalid to date",
+          });
+        }
+
+        match.purchaseDate.$lte = toDate;
+      }
+    }
+
+    const purchases = await Purchase.find(match)
+      .sort({
+        purchaseDate: -1,
+        createdAt: -1,
+      })
+      .lean();
+
+    const summary = purchases.reduce(
+      (result, purchase) => {
+        result.totalPurchases += 1;
+
+        result.totalAmount += Number(purchase.grandTotal || 0);
+
+        return result;
+      },
+      {
+        totalPurchases: 0,
+        totalAmount: 0,
+      },
+    );
+
+    const buyerName = purchases[0]?.buyerName || "Unknown Buyer";
+
+    res.status(200).json({
+      buyer: {
+        _id: buyerId,
+        buyerName,
+      },
+
+      summary,
+
+      purchases,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* =========================================================
+   GET PURCHASE SUMMARY BY ITEM
+========================================================= */
+
+export const getPurchaseSummaryByItem = async (req, res, next) => {
+  try {
+    const userId = getUserId(req);
+
+    if (!userId) {
+      return res.status(401).json({
+        message: "User authentication required",
+      });
+    }
+
+    const { from, to } = req.query;
+
+    const match = {
+      user: userId,
+    };
+
+    const purchaseDate = buildPurchaseDateFilter(from, to);
+
+    if (purchaseDate) {
+      match.purchaseDate = purchaseDate;
+    }
+
+    console.log("Item summary match:", match);
+
+    const items = await Purchase.aggregate([
+      {
+        $match: match,
+      },
+
+      /*
+       * Convert each purchase's items array
+       * into individual item documents.
+       */
+      {
+        $unwind: "$items",
+      },
+
+      /*
+       * Group identical Item IDs.
+       */
+      {
+        $group: {
+          _id: "$items.item",
+
+          itemName: {
+            $first: "$items.itemName",
+          },
+
+          totalQuantity: {
+            $sum: {
+              $ifNull: ["$items.quantity", 0],
+            },
+          },
+
+          totalPieces: {
+            $sum: {
+              $ifNull: ["$items.pieces", 0],
+            },
+          },
+
+          totalAmount: {
+            $sum: {
+              $ifNull: ["$items.total", 0],
+            },
+          },
+
+          purchaseCount: {
+            $sum: 1,
+          },
+
+          lastPurchaseDate: {
+            $max: "$purchaseDate",
+          },
+        },
+      },
+
+      /*
+       * Calculate average price per quantity.
+       */
+      {
+        $addFields: {
+          averagePrice: {
+            $cond: [
+              {
+                $gt: ["$totalQuantity", 0],
+              },
+              {
+                $divide: ["$totalAmount", "$totalQuantity"],
+              },
+              0,
+            ],
+          },
+        },
+      },
+
+      {
+        $sort: {
+          itemName: 1,
+        },
+      },
+    ]);
+
+    console.log("Item summary result:", items);
+
+    return res.status(200).json({
+      items,
+    });
+  } catch (error) {
+    console.error("getPurchaseSummaryByItem error:", error);
+
+    next(error);
+  }
+};
+
+/* =========================================================
+   GET PURCHASE HISTORY BY ITEM
+========================================================= */
+
+export const getPurchaseHistoryByItem = async (req, res, next) => {
+  try {
+    const { itemId } = req.params;
+    const { from, to } = req.query;
+
+    const match = {
+      user: req.user.id,
+      "items.item": itemId,
+    };
+
+    /*
+     * Date filter
+     */
+    if (from || to) {
+      match.purchaseDate = {};
+
+      if (from) {
+        const fromDate = new Date(`${from}T00:00:00.000`);
+
+        if (Number.isNaN(fromDate.getTime())) {
+          return res.status(400).json({
+            message: "Invalid from date",
+          });
+        }
+
+        match.purchaseDate.$gte = fromDate;
+      }
+
+      if (to) {
+        const toDate = new Date(`${to}T23:59:59.999`);
+
+        if (Number.isNaN(toDate.getTime())) {
+          return res.status(400).json({
+            message: "Invalid to date",
+          });
+        }
+
+        match.purchaseDate.$lte = toDate;
+      }
+    }
+
+    const purchases = await Purchase.find(match)
+      .sort({
+        purchaseDate: -1,
+        createdAt: -1,
+      })
+      .lean();
+
+    const history = [];
+
+    let totalQuantity = 0;
+    let totalPieces = 0;
+    let totalAmount = 0;
+
+    /*
+     * Extract only the requested item
+     * from every purchase.
+     */
+    for (const purchase of purchases) {
+      const matchingItems = purchase.items.filter(
+        (item) => String(item.item) === String(itemId),
+      );
+
+      for (const item of matchingItems) {
+        totalQuantity += Number(item.quantity || 0);
+
+        totalPieces += Number(item.pieces || 0);
+
+        totalAmount += Number(item.total || 0);
+
+        history.push({
+          purchaseId: purchase._id,
+
+          purchaseNumber: purchase.purchaseNumber,
+
+          purchaseDate: purchase.purchaseDate,
+
+          buyer: purchase.buyer,
+
+          buyerName: purchase.buyerName,
+
+          item: item.item,
+
+          itemName: item.itemName,
+
+          quantity: item.quantity,
+
+          pieces: item.pieces,
+
+          price: item.price,
+
+          total: item.total,
+        });
+      }
+    }
+
+    const averagePrice = totalQuantity > 0 ? totalAmount / totalQuantity : 0;
+
+    const itemName = history[0]?.itemName || "Unknown Item";
+
+    res.status(200).json({
+      item: {
+        _id: itemId,
+        itemName,
+      },
+
+      summary: {
+        totalQuantity,
+        totalPieces,
+        totalAmount,
+        averagePrice,
+        purchaseCount: history.length,
+      },
+
+      history,
+    });
+  } catch (error) {
+    next(error);
   }
 };
