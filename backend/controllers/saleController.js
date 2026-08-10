@@ -318,7 +318,6 @@ export const createSale = async (req, res, next) => {
 
     res.status(201).json({
       message: "Sale created successfully",
-
       sale,
     });
   } catch (error) {
@@ -342,9 +341,37 @@ export const createSale = async (req, res, next) => {
 
 export const getSales = async (req, res, next) => {
   try {
-    const sales = await Sale.find({
+    const query = {
       user: req.user.id,
-    })
+    };
+
+    /*
+     * Optional date filtering.
+     *
+     * Example:
+     * /api/sales?from=2026-08-01&to=2026-08-10
+     */
+    if (req.query.from || req.query.to) {
+      query.saleDate = {};
+
+      if (req.query.from) {
+        const fromDate = new Date(req.query.from);
+
+        fromDate.setHours(0, 0, 0, 0);
+
+        query.saleDate.$gte = fromDate;
+      }
+
+      if (req.query.to) {
+        const toDate = new Date(req.query.to);
+
+        toDate.setHours(23, 59, 59, 999);
+
+        query.saleDate.$lte = toDate;
+      }
+    }
+
+    const sales = await Sale.find(query)
       .sort({
         saleDate: -1,
         createdAt: -1,
@@ -406,10 +433,36 @@ export const getSalesBySeller = async (req, res, next) => {
       });
     }
 
-    const sales = await Sale.find({
+    const query = {
       user: req.user.id,
       seller: sellerId,
-    })
+    };
+
+    /*
+     * Optional date filtering.
+     */
+    if (req.query.from || req.query.to) {
+      query.saleDate = {};
+
+      if (req.query.from) {
+        const fromDate = new Date(req.query.from);
+
+        fromDate.setHours(0, 0, 0, 0);
+
+        query.saleDate.$gte = fromDate;
+      }
+
+      if (req.query.to) {
+        const toDate = new Date(req.query.to);
+
+        toDate.setHours(23, 59, 59, 999);
+
+        query.saleDate.$lte = toDate;
+      }
+    }
+
+    const sales = await Sale.find(query)
+      .populate("seller", "shopName city address phone email gstNumber")
       .sort({
         saleDate: -1,
         createdAt: -1,
@@ -438,18 +491,327 @@ export const getSalesByItem = async (req, res, next) => {
       });
     }
 
-    const sales = await Sale.find({
+    const query = {
       user: req.user.id,
       "items.item": itemId,
-    })
+    };
+
+    /*
+     * Optional date filtering.
+     */
+    if (req.query.from || req.query.to) {
+      query.saleDate = {};
+
+      if (req.query.from) {
+        const fromDate = new Date(req.query.from);
+
+        fromDate.setHours(0, 0, 0, 0);
+
+        query.saleDate.$gte = fromDate;
+      }
+
+      if (req.query.to) {
+        const toDate = new Date(req.query.to);
+
+        toDate.setHours(23, 59, 59, 999);
+
+        query.saleDate.$lte = toDate;
+      }
+    }
+
+    const sales = await Sale.find(query)
+      .populate("seller", "shopName city address phone email gstNumber")
       .sort({
         saleDate: -1,
+        createdAt: -1,
       })
       .lean();
 
-    res.json({
-      sales,
+    /*
+     * Return only the requested item
+     * from every sale.
+     */
+    const result = sales.map((sale) => {
+      return {
+        ...sale,
+        items: sale.items.filter(
+          (saleItem) => saleItem.item?.toString() === itemId,
+        ),
+      };
     });
+
+    res.json({
+      sales: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* =========================================================
+   GET SELLER SALES SUMMARY
+=========================================================
+
+   Returns one row per seller.
+
+   Used by:
+
+   Selling History
+        ↓
+   By Seller
+
+   Example result:
+
+   [
+     {
+       _id: "...",
+       sellerName: "ABC Traders",
+       totalSales: 5,
+       totalAmount: 25000,
+       lastSaleDate: "..."
+     }
+   ]
+
+   Optional:
+
+   ?from=2026-08-01
+   ?to=2026-08-10
+
+========================================================= */
+
+export const getSellerSalesSummary = async (req, res, next) => {
+  try {
+    const match = {
+      user: new mongoose.Types.ObjectId(req.user.id),
+    };
+
+    /*
+     * Date filtering.
+     */
+    if (req.query.from || req.query.to) {
+      match.saleDate = {};
+
+      if (req.query.from) {
+        const fromDate = new Date(req.query.from);
+
+        if (Number.isNaN(fromDate.getTime())) {
+          return res.status(400).json({
+            message: "Invalid from date",
+          });
+        }
+
+        fromDate.setHours(0, 0, 0, 0);
+
+        match.saleDate.$gte = fromDate;
+      }
+
+      if (req.query.to) {
+        const toDate = new Date(req.query.to);
+
+        if (Number.isNaN(toDate.getTime())) {
+          return res.status(400).json({
+            message: "Invalid to date",
+          });
+        }
+
+        toDate.setHours(23, 59, 59, 999);
+
+        match.saleDate.$lte = toDate;
+      }
+    }
+
+    /*
+     * Prevent invalid date ranges.
+     */
+    if (
+      match.saleDate?.$gte &&
+      match.saleDate?.$lte &&
+      match.saleDate.$gte > match.saleDate.$lte
+    ) {
+      return res.status(400).json({
+        message: "From date cannot be greater than to date",
+      });
+    }
+
+    const result = await Sale.aggregate([
+      {
+        $match: match,
+      },
+
+      {
+        $group: {
+          _id: "$seller",
+
+          sellerName: {
+            $first: "$sellerName",
+          },
+
+          totalSales: {
+            $sum: 1,
+          },
+
+          totalAmount: {
+            $sum: "$grandTotal",
+          },
+
+          lastSaleDate: {
+            $max: "$saleDate",
+          },
+        },
+      },
+
+      {
+        $sort: {
+          lastSaleDate: -1,
+        },
+      },
+    ]);
+
+    return res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* =========================================================
+   GET ITEM SALES SUMMARY
+=========================================================
+
+   Returns one row per item.
+
+   Used by:
+
+   Selling History
+        ↓
+   By Item
+
+   Example:
+
+   {
+     itemName: "Neem",
+     totalQuantity: 20,
+     totalPieces: 100,
+     totalAmount: 5000,
+     averagePrice: 250,
+     saleCount: 4
+   }
+
+   Optional:
+
+   ?from=2026-08-01
+   ?to=2026-08-10
+
+========================================================= */
+
+export const getItemSalesSummary = async (req, res, next) => {
+  try {
+    const match = {
+      user: new mongoose.Types.ObjectId(req.user.id),
+    };
+
+    /*
+     * Date filtering.
+     */
+    if (req.query.from || req.query.to) {
+      match.saleDate = {};
+
+      if (req.query.from) {
+        const fromDate = new Date(req.query.from);
+
+        if (Number.isNaN(fromDate.getTime())) {
+          return res.status(400).json({
+            message: "Invalid from date",
+          });
+        }
+
+        fromDate.setHours(0, 0, 0, 0);
+
+        match.saleDate.$gte = fromDate;
+      }
+
+      if (req.query.to) {
+        const toDate = new Date(req.query.to);
+
+        if (Number.isNaN(toDate.getTime())) {
+          return res.status(400).json({
+            message: "Invalid to date",
+          });
+        }
+
+        toDate.setHours(23, 59, 59, 999);
+
+        match.saleDate.$lte = toDate;
+      }
+    }
+
+    /*
+     * Prevent invalid date ranges.
+     */
+    if (
+      match.saleDate?.$gte &&
+      match.saleDate?.$lte &&
+      match.saleDate.$gte > match.saleDate.$lte
+    ) {
+      return res.status(400).json({
+        message: "From date cannot be greater than to date",
+      });
+    }
+
+    const result = await Sale.aggregate([
+      {
+        $match: match,
+      },
+
+      /*
+       * One document for every item
+       * inside every sale.
+       */
+      {
+        $unwind: "$items",
+      },
+
+      {
+        $group: {
+          _id: "$items.item",
+
+          itemName: {
+            $first: "$items.itemName",
+          },
+
+          totalQuantity: {
+            $sum: "$items.quantity",
+          },
+
+          totalPieces: {
+            $sum: "$items.pieces",
+          },
+
+          totalAmount: {
+            $sum: "$items.total",
+          },
+
+          averagePrice: {
+            $avg: "$items.price",
+          },
+
+          saleCount: {
+            $sum: 1,
+          },
+
+          lastSaleDate: {
+            $max: "$saleDate",
+          },
+        },
+      },
+
+      {
+        $sort: {
+          lastSaleDate: -1,
+        },
+      },
+    ]);
+
+    return res.status(200).json(result);
   } catch (error) {
     next(error);
   }

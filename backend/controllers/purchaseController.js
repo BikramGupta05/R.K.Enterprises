@@ -714,8 +714,6 @@ export const getPurchaseSummaryByBuyer = async (req, res, next) => {
       match.purchaseDate = purchaseDate;
     }
 
-    console.log("Buyer summary match:", match);
-
     const buyers = await Purchase.aggregate([
       {
         $match: match,
@@ -751,8 +749,6 @@ export const getPurchaseSummaryByBuyer = async (req, res, next) => {
         },
       },
     ]);
-
-    console.log("Buyer summary result:", buyers);
 
     return res.status(200).json({
       buyers,
@@ -873,8 +869,6 @@ export const getPurchaseSummaryByItem = async (req, res, next) => {
       match.purchaseDate = purchaseDate;
     }
 
-    console.log("Item summary match:", match);
-
     const items = await Purchase.aggregate([
       {
         $match: match,
@@ -952,8 +946,6 @@ export const getPurchaseSummaryByItem = async (req, res, next) => {
         },
       },
     ]);
-
-    console.log("Item summary result:", items);
 
     return res.status(200).json({
       items,

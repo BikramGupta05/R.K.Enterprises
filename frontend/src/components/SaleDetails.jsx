@@ -3,129 +3,189 @@ function SaleDetails({ sale, onClose }) {
     return null;
   }
 
-  const formattedDate = sale.saleDate
-    ? new Date(sale.saleDate).toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "long",
-        year: "numeric",
-      })
-    : "Unknown date";
+  const formatDate = (date) => {
+    if (!date) return "N/A";
+
+    return new Date(date).toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  const formatMoney = (value) => {
+    return `₹${Number(value || 0).toFixed(2)}`;
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4 py-6">
-      <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl sm:p-8">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 p-4">
+      <div className="mx-auto my-8 w-full max-w-6xl rounded-2xl bg-white shadow-2xl">
         {/* Header */}
 
-        <div className="mb-8 flex items-start justify-between gap-4">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
           <div>
-            <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">
-              {sale.sellerName}
-            </h2>
+            <h2 className="text-2xl font-bold text-slate-900">Sale Details</h2>
 
-            <div className="mt-2 space-y-1 text-sm text-slate-500">
-              <p>
-                Date:{" "}
-                <span className="font-medium text-slate-700">
-                  {formattedDate}
-                </span>
-              </p>
-
-              <p>
-                Sale No:{" "}
-                <span className="font-medium text-slate-700">
-                  {sale.saleNumber}
-                </span>
-              </p>
-            </div>
+            <p className="mt-1 text-sm text-slate-500">{sale.saleNumber}</p>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full p-2 text-2xl leading-none text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-          >
-            ×
-          </button>
-        </div>
-
-        {/* Items Table */}
-
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[800px] border-collapse">
-            <thead>
-              <tr className="border-b border-slate-300 bg-slate-50 text-left text-sm text-slate-600">
-                <th className="p-3 font-semibold">Item</th>
-
-                <th className="p-3 font-semibold">Quantity</th>
-
-                <th className="p-3 font-semibold">Pieces</th>
-
-                <th className="p-3 font-semibold">Price</th>
-
-                <th className="p-3 text-right font-semibold">Total</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {sale.items?.map((item) => (
-                <tr key={item._id} className="border-b border-slate-200">
-                  <td className="p-3 font-medium text-slate-900">
-                    {item.itemName}
-                  </td>
-
-                  <td className="p-3 text-slate-600">{item.quantity}</td>
-
-                  <td className="p-3 text-slate-600">{item.pieces}</td>
-
-                  <td className="p-3 text-slate-600">
-                    ₹{Number(item.price || 0).toFixed(2)}
-                  </td>
-
-                  <td className="p-3 text-right font-medium text-slate-900">
-                    ₹{Number(item.total || 0).toFixed(2)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Totals */}
-
-        <div className="mt-8 flex justify-end">
-          <div className="w-full max-w-sm rounded-2xl bg-slate-50 p-5">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-600">Items Total</span>
-
-              <span className="font-semibold text-slate-900">
-                ₹{Number(sale.itemsTotal || 0).toFixed(2)}
-              </span>
-            </div>
-
-            <div className="my-4 border-t border-slate-200" />
-
-            <div className="flex items-center justify-between">
-              <span className="text-lg font-semibold text-slate-900">
-                Final Total
-              </span>
-
-              <span className="text-2xl font-bold text-slate-900">
-                ₹{Number(sale.grandTotal || 0).toFixed(2)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Close */}
-
-        <div className="mt-8 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-slate-300 bg-white px-6 py-3 font-medium text-slate-700 transition hover:bg-slate-100"
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
           >
             Close
           </button>
+        </div>
+
+        {/* Sale information */}
+
+        <div className="grid gap-4 border-b border-slate-200 p-6 md:grid-cols-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Date
+            </p>
+
+            <p className="mt-1 font-semibold text-slate-900">
+              {formatDate(sale.saleDate)}
+            </p>
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Seller
+            </p>
+
+            <p className="mt-1 font-semibold text-slate-900">
+              {sale.sellerName || "N/A"}
+            </p>
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Items Total
+            </p>
+
+            <p className="mt-1 font-semibold text-slate-900">
+              {formatMoney(sale.itemsTotal)}
+            </p>
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Grand Total
+            </p>
+
+            <p className="mt-1 text-lg font-bold text-slate-900">
+              {formatMoney(sale.grandTotal)}
+            </p>
+          </div>
+        </div>
+
+        {/* Items table */}
+
+        <div className="p-6">
+          <h3 className="mb-4 text-lg font-semibold text-slate-900">
+            Sold Items
+          </h3>
+
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full min-w-[800px] border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="px-5 py-3 text-left text-sm font-semibold text-slate-600">
+                    Item
+                  </th>
+
+                  <th className="px-5 py-3 text-right text-sm font-semibold text-slate-600">
+                    Quantity
+                  </th>
+
+                  <th className="px-5 py-3 text-right text-sm font-semibold text-slate-600">
+                    Pieces
+                  </th>
+
+                  <th className="px-5 py-3 text-right text-sm font-semibold text-slate-600">
+                    Price
+                  </th>
+
+                  <th className="px-5 py-3 text-right text-sm font-semibold text-slate-600">
+                    Total
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {sale.items?.map((item) => (
+                  <tr
+                    key={item._id}
+                    className="border-b border-slate-100 last:border-b-0"
+                  >
+                    <td className="px-5 py-4 font-medium text-slate-900">
+                      {item.itemName}
+                    </td>
+
+                    <td className="px-5 py-4 text-right text-slate-700">
+                      {item.quantity}
+                    </td>
+
+                    <td className="px-5 py-4 text-right text-slate-700">
+                      {item.pieces}
+                    </td>
+
+                    <td className="px-5 py-4 text-right text-slate-700">
+                      {formatMoney(item.price)}
+                    </td>
+
+                    <td className="px-5 py-4 text-right font-semibold text-slate-900">
+                      {formatMoney(item.total)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+
+              <tfoot>
+                <tr className="border-t border-slate-200 bg-slate-50">
+                  <td
+                    colSpan="4"
+                    className="px-5 py-4 text-right font-semibold text-slate-700"
+                  >
+                    Items Total
+                  </td>
+
+                  <td className="px-5 py-4 text-right font-bold text-slate-900">
+                    {formatMoney(sale.itemsTotal)}
+                  </td>
+                </tr>
+
+                <tr className="bg-slate-50">
+                  <td
+                    colSpan="4"
+                    className="px-5 py-4 text-right font-semibold text-slate-700"
+                  >
+                    Carriage
+                  </td>
+
+                  <td className="px-5 py-4 text-right font-semibold text-slate-900">
+                    {formatMoney(sale.carriage)}
+                  </td>
+                </tr>
+
+                <tr className="bg-slate-50">
+                  <td
+                    colSpan="4"
+                    className="px-5 py-4 text-right text-lg font-bold text-slate-900"
+                  >
+                    Grand Total
+                  </td>
+
+                  <td className="px-5 py-4 text-right text-lg font-bold text-slate-900">
+                    {formatMoney(sale.grandTotal)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
       </div>
     </div>

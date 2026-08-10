@@ -6,6 +6,8 @@ import {
   createSale,
   getSales,
   getSaleById,
+  getSellerSalesSummary,
+  getItemSalesSummary,
   getSalesBySeller,
   getSalesByItem,
 } from "../controllers/saleController.js";
@@ -13,32 +15,56 @@ import {
 const router = express.Router();
 
 /*
- * Create sale.
+ * ============================================================
+ * CREATE SALE
+ * ============================================================
  */
+
 router.post("/", protect, createSale);
 
 /*
- * Get all sales.
+ * ============================================================
+ * GET ALL SALES
+ * ============================================================
  */
+
 router.get("/", protect, getSales);
 
 /*
- * Get sales by seller.
+ * ============================================================
+ * SELLING HISTORY
+ * ============================================================
  *
- * Keep this BEFORE /:id.
+ * IMPORTANT:
+ * These routes must be above /:id.
+ */
+
+/*
+ * By Seller
+ */
+router.get("/summary/sellers", protect, getSellerSalesSummary);
+
+/*
+ * By Item
+ */
+router.get("/summary/items", protect, getItemSalesSummary);
+
+/*
+ * Specific Seller History
  */
 router.get("/seller/:sellerId", protect, getSalesBySeller);
 
 /*
- * Get sales by item.
- *
- * Keep this BEFORE /:id.
+ * Specific Item History
  */
 router.get("/item/:itemId", protect, getSalesByItem);
 
 /*
- * Get one sale.
+ * ============================================================
+ * SINGLE SALE
+ * ============================================================
  */
+
 router.get("/:id", protect, getSaleById);
 
 export default router;

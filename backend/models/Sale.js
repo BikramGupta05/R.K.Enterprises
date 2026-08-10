@@ -7,6 +7,9 @@ const saleItemSchema = new mongoose.Schema(
   {
     /*
      * Reference to the original Item.
+     *
+     * This allows us to later find:
+     * "All sales of this particular item."
      */
     item: {
       type: mongoose.Schema.Types.ObjectId,
@@ -15,9 +18,9 @@ const saleItemSchema = new mongoose.Schema(
     },
 
     /*
-     * Store the item name as a snapshot.
+     * Store item name as a snapshot.
      *
-     * If the item is renamed later,
+     * If the Item name changes later,
      * old sales will still show the
      * original name.
      */
@@ -37,7 +40,7 @@ const saleItemSchema = new mongoose.Schema(
     },
 
     /*
-     * Pieces sold.
+     * Number of pieces sold.
      */
     pieces: {
       type: Number,
@@ -46,10 +49,7 @@ const saleItemSchema = new mongoose.Schema(
     },
 
     /*
-     * Selling price for this item.
-     *
-     * This allows you to sell different
-     * items at different prices.
+     * Selling price.
      */
     price: {
       type: Number,
@@ -58,8 +58,10 @@ const saleItemSchema = new mongoose.Schema(
     },
 
     /*
-     * quantity/pieces based final amount
-     * for this row.
+     * Total amount for this particular item.
+     *
+     * total = quantity/pieces based on
+     * the calculation used by your selling page.
      */
     total: {
       type: Number,
@@ -73,12 +75,15 @@ const saleItemSchema = new mongoose.Schema(
 );
 
 /*
- * Complete sale document.
+ * Main Sale schema.
  */
 const saleSchema = new mongoose.Schema(
   {
     /*
      * User who created this sale.
+     *
+     * Every user should only be able
+     * to access their own sales.
      */
     user: {
       type: mongoose.Schema.Types.ObjectId,
@@ -88,7 +93,7 @@ const saleSchema = new mongoose.Schema(
     },
 
     /*
-     * Seller to whom the goods were sold.
+     * Seller connected to this sale.
      */
     seller: {
       type: mongoose.Schema.Types.ObjectId,
@@ -98,10 +103,10 @@ const saleSchema = new mongoose.Schema(
     },
 
     /*
-     * Seller shop name snapshot.
+     * Seller name snapshot.
      *
-     * This keeps old history accurate
-     * if the seller name changes later.
+     * This protects historical records
+     * if the seller's name changes later.
      */
     sellerName: {
       type: String,
@@ -113,6 +118,7 @@ const saleSchema = new mongoose.Schema(
      * Unique sale number.
      *
      * Example:
+     *
      * SAL-20260810-001
      */
     saleNumber: {
@@ -124,7 +130,7 @@ const saleSchema = new mongoose.Schema(
     },
 
     /*
-     * Date of sale.
+     * Date on which the sale happened.
      */
     saleDate: {
       type: Date,
@@ -134,21 +140,24 @@ const saleSchema = new mongoose.Schema(
     },
 
     /*
-     * Items sold.
+     * Items included in this sale.
      */
     items: {
       type: [saleItemSchema],
       required: true,
+
       validate: {
         validator: function (items) {
           return items && items.length > 0;
         },
+
         message: "At least one item is required",
       },
     },
 
     /*
-     * Total before any additional charges.
+     * Total of all sold items
+     * before any additional charges.
      */
     itemsTotal: {
       type: Number,
@@ -157,15 +166,21 @@ const saleSchema = new mongoose.Schema(
     },
 
     /*
+     * Additional fare / carriage / transportation
+     * amount associated with the sale.
+     *
+     * Keep this as 0 when there is no charge.
+     */
+    carriage: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    /*
      * Final sale amount.
      *
-     * Currently:
-     *
-     * grandTotal = itemsTotal
-     *
-     * We keep this field so that later
-     * discounts, transport charges,
-     * taxes, etc. can be added easily.
+     * grandTotal = itemsTotal + carriage
      */
     grandTotal: {
       type: Number,
@@ -179,7 +194,13 @@ const saleSchema = new mongoose.Schema(
 );
 
 /*
- * User's sales sorted newest first.
+ * ---------------------------------------------------------
+ * INDEXES
+ * ---------------------------------------------------------
+ */
+
+/*
+ * User's sales sorted by newest date first.
  */
 saleSchema.index({
   user: 1,
@@ -188,6 +209,10 @@ saleSchema.index({
 
 /*
  * Seller-specific history.
+ *
+ * Useful for:
+ *
+ * "Show all sales made to this seller."
  */
 saleSchema.index({
   user: 1,
@@ -196,14 +221,17 @@ saleSchema.index({
 });
 
 /*
- * Item-specific history.
+ * Sale number lookup.
  */
 saleSchema.index({
   user: 1,
-  "items.item": 1,
-  saleDate: -1,
+  saleNumber: 1,
 });
 
+/*
+ * Reuse existing model if it has already
+ * been registered by Mongoose.
+ */
 const Sale = mongoose.models.Sale || mongoose.model("Sale", saleSchema);
 
 export default Sale;
