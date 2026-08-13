@@ -15,16 +15,13 @@ const KHATABOOK_SOURCE = "KHATABOOK";
    HELPERS
 ========================================================= */
 
-/*
- * Format currency.
- */
 const formatCurrency = (value) => {
-  return `₹${Number(value || 0).toFixed(2)}`;
+  return `₹${Number(value || 0).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 };
 
-/*
- * Format date for display.
- */
 const formatDate = (date) => {
   if (!date) {
     return "—";
@@ -43,26 +40,14 @@ const formatDate = (date) => {
   });
 };
 
-/*
- * Get sale date.
- */
 const getSaleDate = (sale) => {
   return sale?.saleDate || sale?.purchaseDate || sale?.createdAt || null;
 };
 
-/*
- * Get payment date.
- */
 const getPaymentDate = (payment) => {
   return payment?.paymentDate || payment?.date || payment?.createdAt || null;
 };
 
-/*
- * Convert a YYYY-MM-DD input value
- * into a local Date.
- *
- * This prevents timezone issues.
- */
 const createLocalDate = (dateString, endOfDay = false) => {
   if (!dateString) {
     return null;
@@ -81,10 +66,6 @@ const createLocalDate = (dateString, endOfDay = false) => {
   return new Date(year, month - 1, day, 0, 0, 0, 0);
 };
 
-/*
- * Check whether a transaction belongs
- * to the selected date range.
- */
 const isDateInRange = (value, fromDate, toDate) => {
   if (!value) {
     return false;
@@ -111,16 +92,10 @@ const isDateInRange = (value, fromDate, toDate) => {
   return true;
 };
 
-/*
- * Get seller ID safely.
- */
 const getSaleSellerId = (sale) => {
   return sale?.seller?._id || sale?.sellerId || sale?.seller || null;
 };
 
-/*
- * Get payment seller ID safely.
- */
 const getPaymentSellerId = (payment) => {
   return payment?.seller?._id || payment?.sellerId || payment?.seller || null;
 };
@@ -157,40 +132,23 @@ function Khatabook() {
   } = usePayments();
 
   /* =======================================================
-     UI STATE
+     STATE
   ======================================================= */
 
-  /*
-   * Seller search.
-   */
   const [search, setSearch] = useState("");
 
-  /*
-   * Date range.
-   */
   const [fromDate, setFromDate] = useState("");
 
   const [toDate, setToDate] = useState("");
 
-  /*
-   * Outstanding sorting.
-   *
-   * null = normal/default seller order
-   * asc  = lowest outstanding first
-   * desc = highest outstanding first
-   *
-   * Because this is React state, a browser
-   * refresh automatically resets it to null.
-   */
   const [outstandingSort, setOutstandingSort] = useState(null);
 
   /* =======================================================
-     LOAD KHATABOOK DATA
+     LOAD DATA
   ======================================================= */
 
   useEffect(() => {
     fetchSales();
-
     fetchPayments();
   }, [fetchSales, fetchPayments]);
 
@@ -202,8 +160,6 @@ function Khatabook() {
 
   /* =======================================================
      SELLER ACCOUNTS
-     
-     This is the main calculation.
   ======================================================= */
 
   const sellerAccounts = useMemo(() => {
@@ -211,10 +167,6 @@ function Khatabook() {
       return [];
     }
 
-    /*
-     * If user selects an invalid range,
-     * return no seller transactions.
-     */
     const startDate = createLocalDate(fromDate, false);
 
     const endDate = createLocalDate(toDate, true);
@@ -224,21 +176,13 @@ function Khatabook() {
     if (invalidDateRange) {
       return sellers.map((seller) => ({
         ...seller,
-
         totalSales: 0,
-
         totalAmount: 0,
-
         salePayments: 0,
-
         khatabookPayments: 0,
-
         totalPaid: 0,
-
         outstandingAmount: 0,
-
         lastSaleDate: null,
-
         lastPaymentDate: null,
       }));
     }
@@ -247,8 +191,8 @@ function Khatabook() {
       const sellerId = String(seller._id);
 
       /* =================================================
-           SALES BELONGING TO SELLER
-        ================================================= */
+         SELLER SALES
+      ================================================= */
 
       const sellerSales = Array.isArray(sales)
         ? sales.filter((sale) => {
@@ -258,25 +202,17 @@ function Khatabook() {
               return false;
             }
 
-            /*
-             * Apply date range.
-             */
             return isDateInRange(getSaleDate(sale), fromDate, toDate);
           })
         : [];
 
       /* =================================================
-           KHATABOOK PAYMENTS
-           
-           IMPORTANT:
-           
-           Only Payment documents created
-           through Khatabook Add Payment
-           are counted here.
-           
-           Sale-time payment is already stored
-           inside Sale.paidAmount.
-        ================================================= */
+         KHATABOOK PAYMENTS
+
+         Sale-time payments are already included
+         in sale.paidAmount, so only KHATABOOK
+         payment documents are counted here.
+      ================================================= */
 
       const sellerPayments = Array.isArray(payments)
         ? payments.filter((payment) => {
@@ -286,60 +222,56 @@ function Khatabook() {
               return false;
             }
 
-            /*
-             * Do NOT count sale-time payment
-             * as a separate Payment.
-             */
             if (payment?.source !== KHATABOOK_SOURCE) {
               return false;
             }
 
-            /*
-             * Apply date range.
-             */
             return isDateInRange(getPaymentDate(payment), fromDate, toDate);
           })
         : [];
 
       /* =================================================
-           TOTAL SALE VALUE
-        ================================================= */
+         TOTAL SALE VALUE
+      ================================================= */
 
-      const totalAmount = sellerSales.reduce((total, sale) => {
-        return total + (Number(sale?.grandTotal) || 0);
-      }, 0);
-
-      /* =================================================
-           PAYMENTS MADE DURING SALE
-        ================================================= */
-
-      const salePayments = sellerSales.reduce((total, sale) => {
-        return total + (Number(sale?.paidAmount) || 0);
-      }, 0);
+      const totalAmount = sellerSales.reduce(
+        (total, sale) => total + (Number(sale?.grandTotal) || 0),
+        0,
+      );
 
       /* =================================================
-           LATER KHATABOOK PAYMENTS
-        ================================================= */
+         SALE PAYMENTS
+      ================================================= */
 
-      const khatabookPayments = sellerPayments.reduce((total, payment) => {
-        return total + (Number(payment?.amount) || 0);
-      }, 0);
+      const salePayments = sellerSales.reduce(
+        (total, sale) => total + (Number(sale?.paidAmount) || 0),
+        0,
+      );
 
       /* =================================================
-           TOTAL PAID
-        ================================================= */
+         LATER KHATABOOK PAYMENTS
+      ================================================= */
+
+      const khatabookPayments = sellerPayments.reduce(
+        (total, payment) => total + (Number(payment?.amount) || 0),
+        0,
+      );
+
+      /* =================================================
+         TOTAL PAID
+      ================================================= */
 
       const totalPaid = salePayments + khatabookPayments;
 
       /* =================================================
-           OUTSTANDING
-        ================================================= */
+         OUTSTANDING
+      ================================================= */
 
       const outstandingAmount = Math.max(totalAmount - totalPaid, 0);
 
       /* =================================================
-           LAST SALE
-        ================================================= */
+         LAST SALE
+      ================================================= */
 
       const sortedSales = [...sellerSales].sort((a, b) => {
         const dateA = new Date(getSaleDate(a) || 0).getTime();
@@ -350,11 +282,6 @@ function Khatabook() {
           return dateB - dateA;
         }
 
-        /*
-         * If two sales have the
-         * same date, newest created
-         * document comes first.
-         */
         const createdA = new Date(a?.createdAt || 0).getTime();
 
         const createdB = new Date(b?.createdAt || 0).getTime();
@@ -363,8 +290,8 @@ function Khatabook() {
       });
 
       /* =================================================
-           LAST PAYMENT
-        ================================================= */
+         LAST PAYMENT
+      ================================================= */
 
       const sortedPayments = [...sellerPayments].sort((a, b) => {
         const dateA = new Date(getPaymentDate(a) || 0).getTime();
@@ -375,10 +302,6 @@ function Khatabook() {
           return dateB - dateA;
         }
 
-        /*
-         * Same payment date:
-         * newest created payment first.
-         */
         const createdA = new Date(a?.createdAt || 0).getTime();
 
         const createdB = new Date(b?.createdAt || 0).getTime();
@@ -435,24 +358,10 @@ function Khatabook() {
   }, [sellerAccounts, search]);
 
   /* =======================================================
-     OUTSTANDING SORT
-     
-     DEFAULT
-       Original seller order
-     
-     ASC
-       Lowest outstanding first
-     
-     DESC
-       Highest outstanding first
+     SORT
   ======================================================= */
 
   const filteredSellers = useMemo(() => {
-    /*
-     * Always make a new array.
-     *
-     * We never mutate sellerAccounts.
-     */
     const result = [...searchedSellers];
 
     if (outstandingSort === "asc") {
@@ -461,10 +370,6 @@ function Khatabook() {
 
         const outstandingB = Number(b?.outstandingAmount) || 0;
 
-        /*
-         * Secondary alphabetical
-         * ordering keeps equal values stable.
-         */
         if (outstandingA !== outstandingB) {
           return outstandingA - outstandingB;
         }
@@ -499,24 +404,11 @@ function Khatabook() {
       });
     }
 
-    /*
-     * If outstandingSort is null,
-     * don't sort.
-     *
-     * Therefore refresh gives the
-     * normal/default order again.
-     */
     return result;
   }, [searchedSellers, outstandingSort]);
 
   /* =======================================================
      OVERALL TOTALS
-     
-     These totals respect:
-     
-     1. Search
-     2. Date range
-     3. Outstanding sorting does NOT affect totals
   ======================================================= */
 
   const overall = useMemo(() => {
@@ -534,11 +426,8 @@ function Khatabook() {
       },
       {
         totalSales: 0,
-
         totalAmount: 0,
-
         totalPaid: 0,
-
         outstanding: 0,
       },
     );
@@ -546,16 +435,6 @@ function Khatabook() {
 
   /* =======================================================
      OUTSTANDING SORT HANDLER
-     
-     Cycle:
-     
-     null → asc → desc → null
-     
-     However the user specifically wants
-     refresh to return to normal.
-     
-     Since state starts as null,
-     refresh automatically resets it.
   ======================================================= */
 
   const handleOutstandingSort = () => {
@@ -578,21 +457,10 @@ function Khatabook() {
 
   const clearFilters = () => {
     setSearch("");
-
     setFromDate("");
-
     setToDate("");
-
-    /*
-     * Also return outstanding sorting
-     * to normal.
-     */
     setOutstandingSort(null);
   };
-
-  /* =======================================================
-     FILTER STATE
-  ======================================================= */
 
   const hasFilters = Boolean(search.trim() || fromDate || toDate);
 
@@ -616,6 +484,34 @@ function Khatabook() {
   };
 
   /* =======================================================
+     LAST ACTIVITY
+
+     Instead of showing both:
+       Last Sale
+       Last Payment
+
+     show only the latest date.
+  ======================================================= */
+
+  const getLastActivity = (seller) => {
+    const saleTime = seller?.lastSaleDate
+      ? new Date(seller.lastSaleDate).getTime()
+      : 0;
+
+    const paymentTime = seller?.lastPaymentDate
+      ? new Date(seller.lastPaymentDate).getTime()
+      : 0;
+
+    if (!saleTime && !paymentTime) {
+      return null;
+    }
+
+    return saleTime >= paymentTime
+      ? seller.lastSaleDate
+      : seller.lastPaymentDate;
+  };
+
+  /* =======================================================
      ERROR
   ======================================================= */
 
@@ -627,12 +523,16 @@ function Khatabook() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 px-4 py-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-slate-700" />
+      <div className="min-h-screen bg-slate-50 p-3">
+        <div className="mx-auto max-w-[1500px]">
+          <div className="flex h-12 items-center justify-between border border-slate-300 bg-white px-3">
+            <div>
+              <h1 className="text-base font-bold text-slate-900">Khatabook</h1>
 
-            <p className="mt-4 text-sm text-slate-600">Loading Khatabook...</p>
+              <p className="text-[10px] text-slate-400">Loading...</p>
+            </div>
+
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-slate-700" />
           </div>
         </div>
       </div>
@@ -644,30 +544,34 @@ function Khatabook() {
   ======================================================= */
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-6 md:px-6">
-      <div className="mx-auto max-w-7xl">
+    <div className="min-h-screen bg-slate-50 p-2 sm:p-3">
+      <div className="mx-auto w-full max-w-[1500px]">
         {/* =================================================
             HEADER
         ================================================= */}
 
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">Khatabook</h1>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Manage seller balances, payments and outstanding amounts.
-            </p>
-          </div>
-
-          <div className="flex gap-3">
+        <div className="mb-2 flex h-10 items-center justify-between border border-slate-300 bg-white px-2">
+          <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => navigate("/dashboard")}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              className="h-7 rounded border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100"
             >
-              Back to Dashboard
+              ← Back
             </button>
+
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-bold text-slate-900">Khatabook</h1>
+
+              <span className="hidden text-[10px] text-slate-400 sm:inline">
+                Seller ledger
+              </span>
+            </div>
           </div>
+
+          <span className="text-[10px] text-slate-500">
+            {filteredSellers.length} sellers
+          </span>
         </div>
 
         {/* =================================================
@@ -675,53 +579,55 @@ function Khatabook() {
         ================================================= */}
 
         {pageError && (
-          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-            <p className="text-sm font-medium text-red-700">{pageError}</p>
+          <div className="mb-2 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {pageError}
           </div>
         )}
 
         {/* =================================================
             SUMMARY
+
+            Single compact Excel-style row
         ================================================= */}
 
-        <div className="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="grid grid-cols-2 divide-x divide-y divide-slate-200 md:grid-cols-4 md:divide-y-0">
-            <div className="p-5">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Total Sales
+        <div className="mb-2 overflow-hidden border border-slate-300 bg-white">
+          <div className="grid grid-cols-2 divide-x divide-y divide-slate-200 sm:grid-cols-4 sm:divide-y-0">
+            <div className="px-3 py-2">
+              <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                Sales
               </p>
 
-              <p className="mt-2 text-2xl font-bold text-slate-900">
+              <p className="mt-0.5 text-sm font-bold tabular-nums text-slate-900">
                 {overall.totalSales}
               </p>
             </div>
 
-            <div className="p-5">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Total Sale Value
+            <div className="px-3 py-2">
+              <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                Sale Value
               </p>
 
-              <p className="mt-2 text-2xl font-bold text-slate-900">
+              <p className="mt-0.5 text-sm font-bold tabular-nums text-slate-900">
                 {formatCurrency(overall.totalAmount)}
               </p>
             </div>
 
-            <div className="p-5">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Total Paid
+            <div className="px-3 py-2">
+              <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                Paid
               </p>
 
-              <p className="mt-2 text-2xl font-bold text-emerald-600">
+              <p className="mt-0.5 text-sm font-bold tabular-nums text-emerald-600">
                 {formatCurrency(overall.totalPaid)}
               </p>
             </div>
 
-            <div className="p-5">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <div className="px-3 py-2">
+              <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
                 Outstanding
               </p>
 
-              <p className="mt-2 text-2xl font-bold text-red-600">
+              <p className="mt-0.5 text-sm font-bold tabular-nums text-red-600">
                 {formatCurrency(overall.outstanding)}
               </p>
             </div>
@@ -729,89 +635,92 @@ function Khatabook() {
         </div>
 
         {/* =================================================
-            SEARCH + DATE RANGE
+            FILTER BAR
+
+            Compact single-line Excel style
         ================================================= */}
 
-        <div className="mb-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4">
-            <h2 className="font-semibold text-slate-900">Search & Filter</h2>
-
-            <p className="mt-1 text-xs text-slate-500">
-              Search sellers or filter their transactions by date.
-            </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-4">
+        <div className="mb-2 overflow-hidden border border-slate-300 bg-white">
+          <div className="flex flex-col gap-2 p-2 lg:flex-row lg:items-center">
             {/* Search */}
 
-            <div className="md:col-span-2">
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                Search
-              </label>
+            <div className="min-w-0 flex-1 lg:max-w-[400px]">
+              <div className="relative">
+                <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                  🔍
+                </span>
 
-              <input
-                type="text"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search seller, shop, phone or city..."
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-              />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search seller, shop, phone or city..."
+                  className="h-8 w-full rounded border border-slate-300 bg-white pl-7 pr-2 text-xs text-slate-800 outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
+                />
+              </div>
             </div>
 
-            {/* From Date */}
+            {/* From */}
 
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                From Date
+            <div className="flex items-center gap-1.5">
+              <label
+                htmlFor="from-date"
+                className="text-[9px] font-bold uppercase text-slate-500"
+              >
+                From
               </label>
 
               <input
+                id="from-date"
                 type="date"
                 value={fromDate}
                 onChange={(event) => setFromDate(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                className="h-8 w-[140px] rounded border border-slate-300 bg-white px-2 text-xs text-slate-700 outline-none focus:border-slate-500"
               />
             </div>
 
-            {/* To Date */}
+            {/* To */}
 
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                To Date
+            <div className="flex items-center gap-1.5">
+              <label
+                htmlFor="to-date"
+                className="text-[9px] font-bold uppercase text-slate-500"
+              >
+                To
               </label>
 
               <input
+                id="to-date"
                 type="date"
-                value={toDate}
                 min={fromDate || undefined}
+                value={toDate}
                 onChange={(event) => setToDate(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                className="h-8 w-[140px] rounded border border-slate-300 bg-white px-2 text-xs text-slate-700 outline-none focus:border-slate-500"
               />
             </div>
-          </div>
 
-          {/* Filter information */}
+            {/* Result count */}
 
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-slate-500">
+            <div className="ml-auto whitespace-nowrap text-[10px] text-slate-500">
               Showing{" "}
-              <span className="font-semibold text-slate-700">
+              <span className="font-bold text-slate-700">
                 {filteredSellers.length}
               </span>{" "}
               of{" "}
-              <span className="font-semibold text-slate-700">
+              <span className="font-bold text-slate-700">
                 {sellerAccounts.length}
-              </span>{" "}
-              sellers
-            </p>
+              </span>
+            </div>
+
+            {/* Clear */}
 
             {(hasFilters || outstandingSort !== null) && (
               <button
                 type="button"
                 onClick={clearFilters}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                className="h-8 rounded border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-100"
               >
-                Clear Filters
+                Clear
               </button>
             )}
           </div>
@@ -821,86 +730,73 @@ function Khatabook() {
             SELLER TABLE
         ================================================= */}
 
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-hidden border border-slate-300 bg-white">
           <div className="overflow-x-auto">
-            <table className="min-w-[1100px] w-full border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50">
-                  {/* Seller */}
+            <table className="w-full min-w-[900px] border-collapse text-xs">
+              {/* =================================================
+                  TABLE HEADER
+              ================================================= */}
 
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <thead>
+                <tr className="h-8 border-b border-slate-300 bg-slate-100">
+                  <th className="border-r border-slate-300 px-2 text-left text-[10px] font-bold uppercase tracking-wide text-slate-600">
                     Seller
                   </th>
 
-                  {/* Sales */}
-
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="w-[70px] border-r border-slate-300 px-2 text-right text-[10px] font-bold uppercase tracking-wide text-slate-600">
                     Sales
                   </th>
 
-                  {/* Total Sale */}
-
-                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="w-[140px] border-r border-slate-300 px-2 text-right text-[10px] font-bold uppercase tracking-wide text-slate-600">
                     Total Sale
                   </th>
 
-                  {/* Paid */}
-
-                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="w-[140px] border-r border-slate-300 px-2 text-right text-[10px] font-bold uppercase tracking-wide text-slate-600">
                     Paid
                   </th>
 
-                  {/* Outstanding */}
-
-                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="w-[150px] border-r border-slate-300 px-2 text-right text-[10px] font-bold uppercase tracking-wide text-slate-600">
                     <button
                       type="button"
                       onClick={handleOutstandingSort}
-                      className="ml-auto inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:bg-slate-200 hover:text-slate-900"
+                      className="ml-auto inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-slate-200"
                       title={
                         outstandingSort === null
                           ? "Sort outstanding"
                           : outstandingSort === "asc"
                             ? "Sort highest outstanding first"
-                            : "Reset outstanding order"
+                            : "Reset sort"
                       }
                     >
-                      Outstanding
-                      <span className="text-sm font-bold">
-                        {outstandingSortIcon}
-                      </span>
+                      <span>Outstanding</span>
+
+                      <span className="text-xs">{outstandingSortIcon}</span>
                     </button>
                   </th>
 
-                  {/* Last Sale */}
-
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Last Sale
+                  <th className="w-[125px] border-r border-slate-300 px-2 text-left text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                    Last Activity
                   </th>
 
-                  {/* Last Payment */}
-
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Last Payment
-                  </th>
-
-                  {/* Action */}
-
-                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="w-[105px] px-2 text-center text-[10px] font-bold uppercase tracking-wide text-slate-600">
                     Action
                   </th>
                 </tr>
               </thead>
 
+              {/* =================================================
+                  TABLE BODY
+              ================================================= */}
+
               <tbody>
                 {filteredSellers.length === 0 ? (
                   <tr>
-                    <td colSpan="8" className="px-4 py-12 text-center">
-                      <p className="text-sm font-medium text-slate-600">
+                    <td colSpan="7" className="px-4 py-10 text-center">
+                      <p className="text-sm font-semibold text-slate-600">
                         No sellers found
                       </p>
 
-                      <p className="mt-1 text-xs text-slate-400">
+                      <p className="mt-1 text-[11px] text-slate-400">
                         Try another search or date range.
                       </p>
                     </td>
@@ -909,85 +805,87 @@ function Khatabook() {
                   filteredSellers.map((seller) => (
                     <tr
                       key={seller._id}
-                      className="border-b border-slate-100 transition hover:bg-slate-50"
+                      className="h-10 border-b border-slate-200 last:border-b-0 hover:bg-slate-50"
                     >
                       {/* Seller */}
 
-                      <td className="px-4 py-4">
+                      <td className="border-r border-slate-200 px-2">
                         <button
                           type="button"
                           onClick={() => openSeller(seller._id)}
-                          className="text-left"
+                          className="block max-w-full text-left"
                         >
-                          <p className="font-semibold text-slate-900 hover:text-slate-600">
-                            {seller.shopName || seller.name || "Unnamed Seller"}
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <span className="truncate font-semibold text-slate-900 hover:underline">
+                              {seller.shopName ||
+                                seller.name ||
+                                "Unnamed Seller"}
+                            </span>
 
-                          {seller.name && seller.shopName && (
-                            <p className="mt-1 text-xs text-slate-500">
-                              {seller.name}
-                            </p>
-                          )}
+                            {seller.name && seller.shopName && (
+                              <span className="shrink-0 text-[10px] text-slate-400">
+                                {seller.name}
+                              </span>
+                            )}
+                          </div>
 
-                          {seller.phone && (
-                            <p className="mt-1 text-xs text-slate-400">
+                          {(seller.phone || seller.city) && (
+                            <div className="mt-0.5 truncate text-[9px] text-slate-400">
                               {seller.phone}
-                            </p>
+
+                              {seller.phone && seller.city ? " • " : ""}
+
+                              {seller.city}
+                            </div>
                           )}
                         </button>
                       </td>
 
                       {/* Sales */}
 
-                      <td className="px-4 py-4 text-sm text-slate-700">
+                      <td className="border-r border-slate-200 px-2 text-right font-medium tabular-nums text-slate-700">
                         {seller.totalSales}
                       </td>
 
                       {/* Total Sale */}
 
-                      <td className="px-4 py-4 text-right text-sm font-medium text-slate-900">
+                      <td className="border-r border-slate-200 px-2 text-right font-semibold tabular-nums text-slate-900">
                         {formatCurrency(seller.totalAmount)}
                       </td>
 
                       {/* Paid */}
 
-                      <td className="px-4 py-4 text-right text-sm font-medium text-emerald-600">
+                      <td className="border-r border-slate-200 px-2 text-right font-semibold tabular-nums text-emerald-600">
                         {formatCurrency(seller.totalPaid)}
                       </td>
 
                       {/* Outstanding */}
 
-                      <td className="px-4 py-4 text-right">
+                      <td className="border-r border-slate-200 px-2 text-right">
                         <span
                           className={
                             Number(seller.outstandingAmount) > 0
-                              ? "font-semibold text-red-600"
-                              : "font-semibold text-emerald-600"
+                              ? "font-bold tabular-nums text-red-600"
+                              : "font-bold tabular-nums text-emerald-600"
                           }
                         >
                           {formatCurrency(seller.outstandingAmount)}
                         </span>
                       </td>
 
-                      {/* Last Sale */}
+                      {/* Last Activity */}
 
-                      <td className="px-4 py-4 text-sm text-slate-600">
-                        {formatDate(seller.lastSaleDate)}
-                      </td>
-
-                      {/* Last Payment */}
-
-                      <td className="px-4 py-4 text-sm text-slate-600">
-                        {formatDate(seller.lastPaymentDate)}
+                      <td className="border-r border-slate-200 px-2 whitespace-nowrap text-slate-600">
+                        {formatDate(getLastActivity(seller))}
                       </td>
 
                       {/* Action */}
 
-                      <td className="px-4 py-4 text-right">
+                      <td className="px-2 text-center">
                         <button
                           type="button"
                           onClick={() => openSeller(seller._id)}
-                          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                          className="h-6 rounded border border-slate-300 bg-white px-2.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-100"
                         >
                           View Ledger
                         </button>
@@ -997,6 +895,16 @@ function Khatabook() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* =================================================
+              TABLE FOOTER
+          ================================================= */}
+
+          <div className="flex h-7 items-center justify-between border-t border-slate-300 bg-slate-50 px-2 text-[9px] text-slate-500">
+            <span>Khatabook Ledger</span>
+
+            <span>{filteredSellers.length} records</span>
           </div>
         </div>
       </div>

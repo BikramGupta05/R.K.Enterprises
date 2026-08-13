@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 
 function PurchaseItemRow({ row, index, items, onChange, onRemove, canRemove }) {
   const [itemId, setItemId] = useState(row.itemId || "");
-  const [quantity, setQuantity] = useState(row.quantity || "");
-  const [pieces, setPieces] = useState(row.pieces || "");
-  const [price, setPrice] = useState(row.price || "");
+  const [quantity, setQuantity] = useState(row.quantity ?? "");
+  const [pieces, setPieces] = useState(row.pieces ?? "");
+  const [price, setPrice] = useState(row.price ?? "");
 
   useEffect(() => {
     setItemId(row.itemId || "");
@@ -13,12 +13,109 @@ function PurchaseItemRow({ row, index, items, onChange, onRemove, canRemove }) {
     setPrice(row.price ?? "");
   }, [row]);
 
+  /* =========================================================
+     Calculate Total
+  ========================================================= */
+
   const calculateTotal = () => {
     const quantityValue = Number(quantity) || 0;
     const priceValue = Number(price) || 0;
 
     return quantityValue * priceValue;
   };
+
+  /* =========================================================
+     Prevent Mouse Wheel Changes
+  ========================================================= */
+
+  const preventWheelChange = (event) => {
+    event.preventDefault();
+    event.currentTarget.blur();
+  };
+
+  /* =========================================================
+     Quantity
+     
+     Allowed:
+     1
+     8
+     8.5
+     8.55
+
+     Not allowed:
+     8.555
+     e
+     +
+     -
+     abc
+  ========================================================= */
+
+  const handleQuantityChange = (event) => {
+    const value = event.target.value;
+
+    if (!/^\d*(\.\d{0,2})?$/.test(value)) {
+      return;
+    }
+
+    setQuantity(value);
+
+    onChange(index, {
+      itemId,
+      quantity: value,
+      pieces,
+      price,
+    });
+  };
+
+  /* =========================================================
+     Pieces
+     
+     Whole numbers only.
+  ========================================================= */
+
+  const handlePiecesChange = (event) => {
+    const value = event.target.value;
+
+    if (!/^\d*$/.test(value)) {
+      return;
+    }
+
+    setPieces(value);
+
+    onChange(index, {
+      itemId,
+      quantity,
+      pieces: value,
+      price,
+    });
+  };
+
+  /* =========================================================
+     Price
+     
+     Maximum 2 decimal places.
+  ========================================================= */
+
+  const handlePriceChange = (event) => {
+    const value = event.target.value;
+
+    if (!/^\d*(\.\d{0,2})?$/.test(value)) {
+      return;
+    }
+
+    setPrice(value);
+
+    onChange(index, {
+      itemId,
+      quantity,
+      pieces,
+      price: value,
+    });
+  };
+
+  /* =========================================================
+     Item Change
+  ========================================================= */
 
   const handleItemChange = (event) => {
     const value = event.target.value;
@@ -33,58 +130,17 @@ function PurchaseItemRow({ row, index, items, onChange, onRemove, canRemove }) {
     });
   };
 
-  const handleQuantityChange = (event) => {
-    const value = event.target.value;
-
-    setQuantity(value);
-
-    onChange(index, {
-      itemId,
-      quantity: value,
-      pieces,
-      price,
-    });
-  };
-
-  const handlePiecesChange = (event) => {
-    const value = event.target.value;
-
-    setPieces(value);
-
-    onChange(index, {
-      itemId,
-      quantity,
-      pieces: value,
-      price,
-    });
-  };
-
-  const handlePriceChange = (event) => {
-    const value = event.target.value;
-
-    setPrice(value);
-
-    onChange(index, {
-      itemId,
-      quantity,
-      pieces,
-      price: value,
-    });
-  };
-
   return (
-    <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-6">
-      {/* Item */}
+    <div className="grid grid-cols-[minmax(240px,2.5fr)_110px_110px_130px_130px_76px] items-center border-b border-slate-200 bg-white px-3 py-2 last:border-b-0">
+      {/* =====================================================
+          ITEM
+      ===================================================== */}
 
-      <div className="md:col-span-2">
-        <label className="mb-1 block text-sm font-medium text-slate-600">
-          Item
-        </label>
-
+      <div className="pr-2">
         <select
           value={itemId}
           onChange={handleItemChange}
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none transition focus:border-slate-500"
+          className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
         >
           <option value="">Select Item</option>
 
@@ -96,78 +152,74 @@ function PurchaseItemRow({ row, index, items, onChange, onRemove, canRemove }) {
         </select>
       </div>
 
-      {/* Quantity */}
+      {/* =====================================================
+          QUANTITY
+      ===================================================== */}
 
-      <div>
-        <label className="mb-1 block text-sm font-medium text-slate-600">
-          Quantity
-        </label>
-
+      <div className="px-1">
         <input
-          type="number"
-          min="0"
-          step="any"
+          type="text"
+          inputMode="decimal"
           value={quantity}
           onChange={handleQuantityChange}
-          placeholder="0"
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none transition focus:border-slate-500"
+          onWheel={preventWheelChange}
+          placeholder="0.00"
+          className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
         />
       </div>
 
-      {/* Pieces */}
+      {/* =====================================================
+          PIECES
+      ===================================================== */}
 
-      <div>
-        <label className="mb-1 block text-sm font-medium text-slate-600">
-          Pieces
-        </label>
-
+      <div className="px-1">
         <input
-          type="number"
-          min="0"
-          step="1"
+          type="text"
+          inputMode="numeric"
           value={pieces}
           onChange={handlePiecesChange}
+          onWheel={preventWheelChange}
           placeholder="0"
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none transition focus:border-slate-500"
+          className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
         />
       </div>
 
-      {/* Price */}
+      {/* =====================================================
+          PRICE
+      ===================================================== */}
 
-      <div>
-        <label className="mb-1 block text-sm font-medium text-slate-600">
-          Price
-        </label>
-
+      <div className="px-1">
         <input
-          type="number"
-          min="0"
-          step="0.01"
+          type="text"
+          inputMode="decimal"
           value={price}
           onChange={handlePriceChange}
+          onWheel={preventWheelChange}
           placeholder="0.00"
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none transition focus:border-slate-500"
+          className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
         />
       </div>
 
-      {/* Total + Remove */}
+      {/* =====================================================
+          TOTAL
+      ===================================================== */}
 
-      <div className="flex items-end gap-2">
-        <div className="flex-1">
-          <label className="mb-1 block text-sm font-medium text-slate-600">
-            Total
-          </label>
-
-          <div className="flex h-[42px] items-center rounded-lg border border-slate-200 bg-white px-3 font-semibold text-slate-900">
-            ₹{calculateTotal().toFixed(2)}
-          </div>
+      <div className="px-1">
+        <div className="flex h-9 items-center justify-end rounded-md border border-slate-200 bg-slate-50 px-2.5 text-sm font-semibold text-slate-900">
+          ₹{calculateTotal().toFixed(2)}
         </div>
+      </div>
 
+      {/* =====================================================
+          REMOVE
+      ===================================================== */}
+
+      <div className="flex justify-center pl-1">
         {canRemove && (
           <button
             type="button"
             onClick={() => onRemove(index)}
-            className="flex h-[42px] items-center justify-center rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-medium text-red-600 transition hover:bg-red-100"
+            className="h-9 rounded-md border border-red-200 bg-red-50 px-2.5 text-xs font-medium text-red-600 transition hover:bg-red-100"
             title="Remove item"
           >
             Remove

@@ -25,7 +25,10 @@ const PAYMENT_METHODS = {
 ========================================================= */
 
 const formatCurrency = (value) => {
-  return `₹${Number(value || 0).toFixed(2)}`;
+  return `₹${Number(value || 0).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 };
 
 const formatDate = (value) => {
@@ -46,24 +49,14 @@ const formatDate = (value) => {
   });
 };
 
-/*
- * Return the date used by a sale.
- */
 const getSaleDate = (sale) => {
   return sale?.saleDate || sale?.createdAt || null;
 };
 
-/*
- * Return the date used by a payment.
- */
 const getPaymentDate = (payment) => {
   return payment?.paymentDate || payment?.createdAt || null;
 };
 
-/*
- * Convert a backend date into YYYY-MM-DD
- * using the user's local timezone.
- */
 const getLocalDateString = (value) => {
   if (!value) {
     return "";
@@ -82,18 +75,6 @@ const getLocalDateString = (value) => {
   return `${year}-${month}-${day}`;
 };
 
-/*
- * Safely get the timestamp used for ordering.
- *
- * Important:
- *
- * 1. First use the actual transaction date.
- * 2. If two transactions have the same date,
- *    use createdAt as the tie breaker.
- *
- * This is important when two payments happen
- * on the same day.
- */
 const getEntryTimestamp = (entry) => {
   const transactionDate = entry?.date ? new Date(entry.date).getTime() : 0;
 
@@ -112,12 +93,6 @@ const getEntryTimestamp = (entry) => {
   return 0;
 };
 
-/*
- * Get the creation timestamp.
- *
- * This is used when two transactions have exactly
- * the same payment/sale date.
- */
 const getCreatedTimestamp = (entry) => {
   const createdAt = entry?.raw?.createdAt
     ? new Date(entry.raw.createdAt).getTime()
@@ -126,11 +101,6 @@ const getCreatedTimestamp = (entry) => {
   return Number.isFinite(createdAt) ? createdAt : 0;
 };
 
-/*
- * Create a local Date from YYYY-MM-DD.
- *
- * This avoids UTC date conversion problems.
- */
 const createLocalDate = (dateString, endOfDay = false) => {
   if (!dateString) {
     return null;
@@ -159,7 +129,7 @@ function KhatabookSeller() {
   const { sellerId } = useParams();
 
   /* =======================================================
-     AUTHENTICATION
+     AUTH
   ======================================================= */
 
   const { accessToken, loading: authLoading } = useAuth();
@@ -226,7 +196,7 @@ function KhatabookSeller() {
   const [actionError, setActionError] = useState("");
 
   /* =======================================================
-     LEDGER FILTER STATE
+     LEDGER FILTERS
   ======================================================= */
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -252,7 +222,7 @@ function KhatabookSeller() {
   }, [sellers, sellerId]);
 
   /* =======================================================
-     LOAD SELLER DATA
+     LOAD DATA
   ======================================================= */
 
   const loadSellerData = useCallback(async () => {
@@ -269,9 +239,7 @@ function KhatabookSeller() {
     }
 
     await loadSellers();
-
     await fetchSales();
-
     await fetchPaymentsBySeller(sellerId);
   }, [
     sellerId,
@@ -324,7 +292,7 @@ function KhatabookSeller() {
   }, [sales, sellerId]);
 
   /* =======================================================
-     KHATABOOK PAYMENTS ONLY
+     KHATABOOK PAYMENTS
   ======================================================= */
 
   const sellerPayments = useMemo(() => {
@@ -361,19 +329,11 @@ function KhatabookSeller() {
       0,
     );
 
-    /*
-     * Amount already received while making
-     * the original sale.
-     */
     const salePayments = sellerSales.reduce(
       (total, sale) => total + (Number(sale?.paidAmount) || 0),
       0,
     );
 
-    /*
-     * Payments created from the Khatabook
-     * Add Payment section only.
-     */
     const khatabookPayments = sellerPayments.reduce(
       (total, payment) => total + (Number(payment?.amount) || 0),
       0,
@@ -399,7 +359,7 @@ function KhatabookSeller() {
   }, [sellerSales, sellerPayments]);
 
   /* =======================================================
-     PAYMENT DATE VALUE
+     PAYMENT DATE
   ======================================================= */
 
   const paymentDateValue = useCallback((payment) => {
@@ -424,46 +384,36 @@ function KhatabookSeller() {
 
   const resetPaymentForm = useCallback(() => {
     setPaymentAmount("");
-
     setPaymentMethod("cash");
 
     setPaymentDate(new Date().toISOString().split("T")[0]);
 
     setPaymentReference("");
-
     setPaymentNote("");
-
     setEditingPayment(null);
-
     setShowPaymentForm(false);
-
     setActionError("");
   }, []);
 
   /* =======================================================
-     OPEN ADD PAYMENT
+     ADD PAYMENT
   ======================================================= */
 
   const openAddPayment = useCallback(() => {
     setEditingPayment(null);
-
     setPaymentAmount("");
-
     setPaymentMethod("cash");
 
     setPaymentDate(new Date().toISOString().split("T")[0]);
 
     setPaymentReference("");
-
     setPaymentNote("");
-
     setActionError("");
-
     setShowPaymentForm(true);
   }, []);
 
   /* =======================================================
-     OPEN EDIT PAYMENT
+     EDIT PAYMENT
   ======================================================= */
 
   const openEditPayment = useCallback(
@@ -488,7 +438,6 @@ function KhatabookSeller() {
       setPaymentNote(payment?.note || "");
 
       setActionError("");
-
       setShowPaymentForm(true);
     },
     [paymentDateValue],
@@ -547,15 +496,10 @@ function KhatabookSeller() {
 
       const paymentData = {
         sellerId,
-
         amount,
-
         paymentMethod: normalizedPaymentMethod,
-
         paymentDate,
-
         referenceNumber: paymentReference.trim(),
-
         note: paymentNote.trim(),
       };
 
@@ -573,10 +517,6 @@ function KhatabookSeller() {
         return;
       }
 
-      /*
-       * Refresh both datasets so the ledger
-       * and summary always use backend data.
-       */
       await fetchPaymentsBySeller(sellerId);
 
       await fetchSales();
@@ -640,16 +580,7 @@ function KhatabookSeller() {
   };
 
   /* =======================================================
-     COMBINED LEDGER
-     
-     IMPORTANT:
-     
-     This creates the ledger in chronological order.
-     
-     We MUST calculate balance from oldest
-     transaction to newest transaction.
-     
-     The UI will reverse this later.
+     CHRONOLOGICAL LEDGER
   ======================================================= */
 
   const chronologicalLedger = useMemo(() => {
@@ -673,25 +604,12 @@ function KhatabookSeller() {
 
         debit: Math.max(saleAmount, 0),
 
-        /*
-         * IMPORTANT:
-         *
-         * Payment made while creating
-         * the sale is credit here.
-         *
-         * It is NOT also treated as a
-         * Khatabook Payment.
-         */
         credit: Math.min(Math.max(paidDuringSale, 0), Math.max(saleAmount, 0)),
 
         raw: sale,
       };
     });
 
-    /*
-     * Only KHATABOOK payments are added
-     * as separate ledger credit entries.
-     */
     const paymentEntries = sellerPayments.map((payment) => {
       const paymentAmount = Number(payment?.amount) || 0;
 
@@ -714,14 +632,6 @@ function KhatabookSeller() {
       };
     });
 
-    /*
-     * Chronological order:
-     *
-     * oldest -> newest
-     *
-     * First sort by transaction date.
-     * Then createdAt for same-date entries.
-     */
     return [...saleEntries, ...paymentEntries].sort((a, b) => {
       const timeA = getEntryTimestamp(a);
 
@@ -739,10 +649,6 @@ function KhatabookSeller() {
         return createdA - createdB;
       }
 
-      /*
-       * If both timestamps are exactly
-       * the same, keep sale before payment.
-       */
       if (a.type === "sale" && b.type === "payment") {
         return -1;
       }
@@ -757,8 +663,6 @@ function KhatabookSeller() {
 
   /* =======================================================
      RUNNING BALANCE
-     
-     ALWAYS calculate from oldest -> newest.
   ======================================================= */
 
   const ledgerWithBalance = useMemo(() => {
@@ -767,10 +671,6 @@ function KhatabookSeller() {
     return chronologicalLedger.map((entry) => {
       balance += Number(entry.debit || 0) - Number(entry.credit || 0);
 
-      /*
-       * Outstanding should never become
-       * negative.
-       */
       balance = Math.max(balance, 0);
 
       return {
@@ -782,8 +682,6 @@ function KhatabookSeller() {
 
   /* =======================================================
      FILTERED LEDGER
-     
-     Search + Date Range
   ======================================================= */
 
   const filteredLedger = useMemo(() => {
@@ -793,35 +691,21 @@ function KhatabookSeller() {
 
     const endDate = createLocalDate(toDate, true);
 
-    /*
-     * If user enters an invalid range,
-     * return no results rather than showing
-     * confusing data.
-     */
     if (startDate && endDate && startDate > endDate) {
       return [];
     }
 
     const filtered = ledgerWithBalance.filter((entry) => {
-      /*
-       * SEARCH
-       */
       if (search) {
         const searchableText = [
           entry.type,
           entry.reference,
           entry.description,
-
           entry?.raw?.sellerName,
-
           entry?.raw?.paymentNumber,
-
           entry?.raw?.saleNumber,
-
           entry?.raw?.referenceNumber,
-
           entry?.raw?.note,
-
           entry.debit,
           entry.credit,
           entry.balance,
@@ -835,9 +719,6 @@ function KhatabookSeller() {
         }
       }
 
-      /*
-       * DATE RANGE
-       */
       const entryDate = entry.date ? new Date(entry.date) : null;
 
       if (entryDate && !Number.isNaN(entryDate.getTime())) {
@@ -853,20 +734,6 @@ function KhatabookSeller() {
       return true;
     });
 
-    /*
-     * IMPORTANT:
-     *
-     * The balance was calculated above
-     * chronologically.
-     *
-     * Now ONLY reverse the display order.
-     *
-     * Therefore:
-     *
-     * newest -> oldest
-     *
-     * while balance remains correct.
-     */
     return [...filtered].reverse();
   }, [ledgerWithBalance, searchTerm, fromDate, toDate]);
 
@@ -901,14 +768,10 @@ function KhatabookSeller() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 px-4 py-8">
-        <div className="mx-auto max-w-6xl">
-          <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
-            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-slate-700" />
-
-            <p className="mt-4 text-sm text-slate-500">
-              Restoring your session...
-            </p>
+      <div className="min-h-screen bg-slate-50 p-3">
+        <div className="mx-auto max-w-[1400px]">
+          <div className="flex h-12 items-center justify-center border border-slate-300 bg-white">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-slate-700" />
           </div>
         </div>
       </div>
@@ -921,21 +784,21 @@ function KhatabookSeller() {
 
   if (!accessToken) {
     return (
-      <div className="min-h-screen bg-slate-50 px-4 py-8">
-        <div className="mx-auto max-w-5xl">
-          <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
-            <h1 className="text-xl font-bold text-slate-900">
+      <div className="min-h-screen bg-slate-50 p-3">
+        <div className="mx-auto max-w-[700px]">
+          <div className="border border-slate-300 bg-white p-6 text-center">
+            <h1 className="text-lg font-bold text-slate-900">
               Authentication Required
             </h1>
 
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="mt-1 text-xs text-slate-500">
               Please log in again to open Khatabook.
             </p>
 
             <button
               type="button"
               onClick={() => navigate("/login")}
-              className="mt-6 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+              className="mt-4 h-8 rounded border border-slate-800 bg-slate-900 px-4 text-xs font-semibold text-white hover:bg-slate-800"
             >
               Go to Login
             </button>
@@ -951,22 +814,22 @@ function KhatabookSeller() {
 
   if (!loading && !seller && !sellersError && sellerId) {
     return (
-      <div className="min-h-screen bg-slate-50 px-4 py-8">
-        <div className="mx-auto max-w-5xl">
+      <div className="min-h-screen bg-slate-50 p-3">
+        <div className="mx-auto max-w-[1000px]">
           <button
             type="button"
             onClick={() => navigate("/khatabook")}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            className="mb-2 h-7 rounded border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100"
           >
-            ← Back to Khatabook
+            ← Back
           </button>
 
-          <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
-            <h1 className="text-xl font-bold text-slate-900">
+          <div className="border border-slate-300 bg-white p-8 text-center">
+            <h1 className="text-lg font-bold text-slate-900">
               Seller Not Found
             </h1>
 
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="mt-1 text-xs text-slate-500">
               The requested seller could not be found.
             </p>
           </div>
@@ -976,19 +839,19 @@ function KhatabookSeller() {
   }
 
   /* =======================================================
-     LOADING
+     PAGE LOADING
   ======================================================= */
 
   if (loading || !seller) {
     return (
-      <div className="min-h-screen bg-slate-50 px-4 py-8">
-        <div className="mx-auto max-w-6xl">
-          <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
-            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-slate-700" />
+      <div className="min-h-screen bg-slate-50 p-3">
+        <div className="mx-auto max-w-[1400px]">
+          <div className="flex h-12 items-center justify-center border border-slate-300 bg-white">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-slate-700" />
 
-            <p className="mt-4 text-sm text-slate-500">
+            <span className="ml-2 text-xs text-slate-500">
               Loading seller account...
-            </p>
+            </span>
           </div>
         </div>
       </div>
@@ -1000,34 +863,42 @@ function KhatabookSeller() {
   ======================================================= */
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-6 md:px-6">
-      <div className="mx-auto max-w-7xl">
+    <div className="min-h-screen bg-slate-50 p-2 sm:p-3">
+      <div className="mx-auto w-full max-w-[1400px]">
         {/* =================================================
-            HEADER
+            SELLER HEADER
         ================================================= */}
 
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
+        <div className="mb-2 flex min-h-10 flex-col gap-2 border border-slate-300 bg-white px-2 py-1.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-2">
             <button
               type="button"
               onClick={() => navigate("/khatabook")}
-              className="mb-3 text-sm font-medium text-slate-500 hover:text-slate-900"
+              className="h-7 shrink-0 rounded border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
             >
-              ← Back to Khatabook
+              ← Back
             </button>
 
-            <h1 className="text-2xl font-bold text-slate-900">
-              {seller.shopName || seller.name || "Seller Account"}
-            </h1>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="truncate text-sm font-bold text-slate-900">
+                  {seller.shopName || seller.name || "Seller Account"}
+                </h1>
 
-            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-500">
-              {seller.name && seller.shopName && (
-                <span>Contact: {seller.name}</span>
-              )}
+                {seller.name && seller.shopName && (
+                  <span className="hidden truncate text-[10px] text-slate-400 sm:inline">
+                    {seller.name}
+                  </span>
+                )}
+              </div>
 
-              {seller.phone && <span>Phone: {seller.phone}</span>}
+              <div className="truncate text-[9px] text-slate-400">
+                {seller.phone}
 
-              {seller.city && <span>City: {seller.city}</span>}
+                {seller.phone && seller.city ? " • " : ""}
+
+                {seller.city}
+              </div>
             </div>
           </div>
 
@@ -1035,9 +906,9 @@ function KhatabookSeller() {
             type="button"
             onClick={openAddPayment}
             disabled={Number(displayAccount.outstanding) <= 0}
-            className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-7 shrink-0 rounded border border-slate-800 bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            + Add Payment
+            + Payment
           </button>
         </div>
 
@@ -1046,8 +917,8 @@ function KhatabookSeller() {
         ================================================= */}
 
         {pageError && (
-          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-            <p className="text-sm font-medium text-red-700">{pageError}</p>
+          <div className="mb-2 border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
+            {pageError}
           </div>
         )}
 
@@ -1055,45 +926,45 @@ function KhatabookSeller() {
             ACCOUNT SUMMARY
         ================================================= */}
 
-        <div className="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="grid grid-cols-2 divide-x divide-y divide-slate-200 md:grid-cols-4 md:divide-y-0">
-            <div className="p-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <div className="mb-2 overflow-hidden border border-slate-300 bg-white">
+          <div className="grid grid-cols-2 divide-x divide-y divide-slate-200 sm:grid-cols-4 sm:divide-y-0">
+            <div className="px-3 py-1.5">
+              <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
                 Total Sale
               </p>
 
-              <p className="mt-2 text-2xl font-bold text-slate-900">
+              <p className="text-sm font-bold tabular-nums text-slate-900">
                 {formatCurrency(displayAccount.totalSaleValue)}
               </p>
             </div>
 
-            <div className="p-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Paid During Sale
+            <div className="px-3 py-1.5">
+              <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                Paid at Sale
               </p>
 
-              <p className="mt-2 text-2xl font-bold text-slate-900">
+              <p className="text-sm font-bold tabular-nums text-slate-700">
                 {formatCurrency(displayAccount.salePayments)}
               </p>
             </div>
 
-            <div className="p-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Khatabook Payments
+            <div className="px-3 py-1.5">
+              <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                Later Paid
               </p>
 
-              <p className="mt-2 text-2xl font-bold text-emerald-600">
+              <p className="text-sm font-bold tabular-nums text-emerald-600">
                 {formatCurrency(displayAccount.khatabookPayments)}
               </p>
             </div>
 
-            <div className="border-t border-slate-200 bg-slate-50 p-5 md:border-t-0">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div className="px-3 py-1.5">
+              <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
                 Outstanding
               </p>
 
               <p
-                className={`mt-2 text-2xl font-bold ${
+                className={`text-sm font-bold tabular-nums ${
                   Number(displayAccount.outstanding) > 0
                     ? "text-red-600"
                     : "text-emerald-600"
@@ -1110,38 +981,34 @@ function KhatabookSeller() {
         ================================================= */}
 
         {showPaymentForm && (
-          <div className="mb-6 rounded-xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-5 py-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="font-semibold text-slate-900">
-                    {editingPayment ? "Edit Payment" : "Record Payment"}
-                  </h2>
+          <div className="mb-2 border border-slate-300 bg-white">
+            <div className="flex items-center justify-between border-b border-slate-300 bg-slate-100 px-2 py-1.5">
+              <div>
+                <h2 className="text-xs font-bold text-slate-800">
+                  {editingPayment ? "Edit Payment" : "Record Payment"}
+                </h2>
 
-                  <p className="mt-1 text-xs text-slate-500">
-                    Outstanding balance:{" "}
-                    <span className="font-semibold text-red-600">
-                      {formatCurrency(displayAccount.outstanding)}
-                    </span>
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={resetPaymentForm}
-                  className="text-sm font-medium text-slate-500 hover:text-slate-900"
-                >
-                  Cancel
-                </button>
+                <p className="text-[9px] text-slate-500">
+                  Outstanding:{" "}
+                  <span className="font-bold text-red-600">
+                    {formatCurrency(displayAccount.outstanding)}
+                  </span>
+                </p>
               </div>
+
+              <button
+                type="button"
+                onClick={resetPaymentForm}
+                className="h-6 rounded border border-slate-300 bg-white px-2 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Cancel
+              </button>
             </div>
 
-            <form onSubmit={handlePaymentSubmit} className="p-5">
-              <div className="grid gap-4 md:grid-cols-5">
-                {/* Amount */}
-
+            <form onSubmit={handlePaymentSubmit} className="p-2">
+              <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-5">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                  <label className="mb-1 block text-[9px] font-bold uppercase text-slate-500">
                     Amount
                   </label>
 
@@ -1152,22 +1019,20 @@ function KhatabookSeller() {
                     value={paymentAmount}
                     onChange={(event) => setPaymentAmount(event.target.value)}
                     placeholder="0.00"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                    className="h-7 w-full rounded border border-slate-300 px-2 text-xs outline-none focus:border-slate-500"
                     required
                   />
                 </div>
 
-                {/* Method */}
-
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                    Payment Method
+                  <label className="mb-1 block text-[9px] font-bold uppercase text-slate-500">
+                    Method
                   </label>
 
                   <select
                     value={paymentMethod}
                     onChange={(event) => setPaymentMethod(event.target.value)}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                    className="h-7 w-full rounded border border-slate-300 bg-white px-2 text-xs outline-none focus:border-slate-500"
                   >
                     <option value="cash">Cash</option>
 
@@ -1179,26 +1044,22 @@ function KhatabookSeller() {
                   </select>
                 </div>
 
-                {/* Date */}
-
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                    Payment Date
+                  <label className="mb-1 block text-[9px] font-bold uppercase text-slate-500">
+                    Date
                   </label>
 
                   <input
                     type="date"
                     value={paymentDate}
                     onChange={(event) => setPaymentDate(event.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                    className="h-7 w-full rounded border border-slate-300 px-2 text-xs outline-none focus:border-slate-500"
                     required
                   />
                 </div>
 
-                {/* Reference */}
-
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                  <label className="mb-1 block text-[9px] font-bold uppercase text-slate-500">
                     Reference
                   </label>
 
@@ -1209,14 +1070,12 @@ function KhatabookSeller() {
                       setPaymentReference(event.target.value)
                     }
                     placeholder="Optional"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                    className="h-7 w-full rounded border border-slate-300 px-2 text-xs outline-none focus:border-slate-500"
                   />
                 </div>
 
-                {/* Note */}
-
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                  <label className="mb-1 block text-[9px] font-bold uppercase text-slate-500">
                     Note
                   </label>
 
@@ -1224,23 +1083,23 @@ function KhatabookSeller() {
                     type="text"
                     value={paymentNote}
                     onChange={(event) => setPaymentNote(event.target.value)}
-                    placeholder="Optional note"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                    placeholder="Optional"
+                    className="h-7 w-full rounded border border-slate-300 px-2 text-xs outline-none focus:border-slate-500"
                   />
                 </div>
               </div>
 
               {actionError && (
-                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-                  <p className="text-sm text-red-700">{actionError}</p>
+                <div className="mt-2 border border-red-200 bg-red-50 px-2 py-1.5 text-[10px] text-red-700">
+                  {actionError}
                 </div>
               )}
 
-              <div className="mt-5 flex justify-end gap-3">
+              <div className="mt-2 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={resetPaymentForm}
-                  className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className="h-7 rounded border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-100"
                 >
                   Cancel
                 </button>
@@ -1248,13 +1107,13 @@ function KhatabookSeller() {
                 <button
                   type="submit"
                   disabled={submitting || saving}
-                  className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="h-7 rounded border border-slate-800 bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                 >
                   {submitting || saving
                     ? "Saving..."
                     : editingPayment
-                      ? "Update Payment"
-                      : "Save Payment"}
+                      ? "Update"
+                      : "Save"}
                 </button>
               </div>
             </form>
@@ -1262,55 +1121,37 @@ function KhatabookSeller() {
         )}
 
         {/* =================================================
-            LEDGER FILTERS
+            FILTER BAR
         ================================================= */}
 
-        <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex flex-col gap-1">
-            <h2 className="font-semibold text-slate-900">Search & Filter</h2>
-
-            <p className="text-xs text-slate-500">
-              Search transactions or filter the ledger by date range.
-            </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-4">
-            {/* Search */}
-
-            <div className="md:col-span-2">
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                Search
-              </label>
-
+        <div className="mb-2 border border-slate-300 bg-white">
+          <div className="flex flex-col gap-2 p-2 lg:flex-row lg:items-center">
+            <div className="min-w-0 flex-1 lg:max-w-[420px]">
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search reference, description, payment..."
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                placeholder="Search transaction, reference, note..."
+                className="h-7 w-full rounded border border-slate-300 px-2 text-xs outline-none focus:border-slate-500"
               />
             </div>
 
-            {/* From Date */}
-
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                From Date
+            <div className="flex items-center gap-1.5">
+              <label className="text-[9px] font-bold uppercase text-slate-500">
+                From
               </label>
 
               <input
                 type="date"
                 value={fromDate}
                 onChange={(event) => setFromDate(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                className="h-7 w-[135px] rounded border border-slate-300 px-2 text-[11px] outline-none focus:border-slate-500"
               />
             </div>
 
-            {/* To Date */}
-
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                To Date
+            <div className="flex items-center gap-1.5">
+              <label className="text-[9px] font-bold uppercase text-slate-500">
+                To
               </label>
 
               <input
@@ -1318,92 +1159,83 @@ function KhatabookSeller() {
                 value={toDate}
                 min={fromDate || undefined}
                 onChange={(event) => setToDate(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                className="h-7 w-[135px] rounded border border-slate-300 px-2 text-[11px] outline-none focus:border-slate-500"
               />
             </div>
-          </div>
 
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-slate-500">
+            <div className="ml-auto whitespace-nowrap text-[10px] text-slate-500">
               Showing{" "}
-              <span className="font-semibold text-slate-700">
+              <span className="font-bold text-slate-700">
                 {filteredLedger.length}
               </span>{" "}
               of{" "}
-              <span className="font-semibold text-slate-700">
+              <span className="font-bold text-slate-700">
                 {ledgerWithBalance.length}
-              </span>{" "}
-              transactions
-            </p>
+              </span>
+            </div>
 
             {hasFilters && (
               <button
                 type="button"
                 onClick={clearFilters}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="h-7 rounded border border-slate-300 bg-white px-2.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
               >
-                Clear Filters
+                Clear
               </button>
             )}
           </div>
         </div>
 
         {/* =================================================
-            LEDGER
+            LEDGER TABLE
         ================================================= */}
 
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-5 py-4">
-            <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h2 className="font-semibold text-slate-900">
-                  Khatabook Ledger
-                </h2>
+        <div className="overflow-hidden border border-slate-300 bg-white">
+          <div className="flex h-8 items-center justify-between border-b border-slate-300 bg-slate-100 px-2">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xs font-bold text-slate-800">Ledger</h2>
 
-                <p className="mt-1 text-xs text-slate-500">
-                  Complete history of sales and Khatabook payments.
-                </p>
-              </div>
-
-              <span className="text-xs font-medium text-slate-500">
-                Newest first
-              </span>
+              <span className="text-[9px] text-slate-400">Newest first</span>
             </div>
+
+            <span className="text-[9px] text-slate-500">
+              {filteredLedger.length} records
+            </span>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="min-w-[1000px] w-full border-collapse">
+            <table className="w-full min-w-[850px] border-collapse text-xs">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50">
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <tr className="h-8 border-b border-slate-300 bg-slate-50">
+                  <th className="w-[110px] border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
                     Date
                   </th>
 
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="w-[85px] border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
                     Type
                   </th>
 
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="w-[150px] border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
                     Reference
                   </th>
 
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
                     Description
                   </th>
 
-                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="w-[130px] border-r border-slate-300 px-2 text-right text-[9px] font-bold uppercase tracking-wide text-slate-600">
                     Debit
                   </th>
 
-                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="w-[130px] border-r border-slate-300 px-2 text-right text-[9px] font-bold uppercase tracking-wide text-slate-600">
                     Credit
                   </th>
 
-                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="w-[140px] border-r border-slate-300 px-2 text-right text-[9px] font-bold uppercase tracking-wide text-slate-600">
                     Balance
                   </th>
 
-                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="w-[125px] px-2 text-center text-[9px] font-bold uppercase tracking-wide text-slate-600">
                     Actions
                   </th>
                 </tr>
@@ -1412,14 +1244,14 @@ function KhatabookSeller() {
               <tbody>
                 {filteredLedger.length === 0 ? (
                   <tr>
-                    <td colSpan="8" className="px-4 py-12 text-center">
-                      <p className="text-sm font-medium text-slate-600">
+                    <td colSpan="8" className="px-4 py-8 text-center">
+                      <p className="text-xs font-semibold text-slate-600">
                         {hasFilters
-                          ? "No transactions match your filters"
+                          ? "No matching transactions"
                           : "No transactions found"}
                       </p>
 
-                      <p className="mt-1 text-xs text-slate-400">
+                      <p className="mt-1 text-[10px] text-slate-400">
                         {hasFilters
                           ? "Try changing the search or date range."
                           : "Sales and payments will appear here."}
@@ -1429,9 +1261,9 @@ function KhatabookSeller() {
                         <button
                           type="button"
                           onClick={clearFilters}
-                          className="mt-4 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                          className="mt-2 h-7 rounded border border-slate-300 bg-white px-3 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
                         >
-                          Clear Filters
+                          Clear
                         </button>
                       )}
                     </td>
@@ -1440,51 +1272,71 @@ function KhatabookSeller() {
                   filteredLedger.map((entry) => (
                     <tr
                       key={entry.id}
-                      className="border-b border-slate-100 hover:bg-slate-50"
+                      className="h-9 border-b border-slate-200 last:border-b-0 hover:bg-slate-50"
                     >
-                      <td className="px-4 py-4 text-sm text-slate-600">
+                      {/* Date */}
+
+                      <td className="border-r border-slate-200 px-2 whitespace-nowrap text-[10px] text-slate-600">
                         {formatDate(entry.date)}
                       </td>
 
-                      <td className="px-4 py-4">
+                      {/* Type */}
+
+                      <td className="border-r border-slate-200 px-2">
                         {entry.type === "sale" ? (
-                          <span className="inline-flex rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-600">
+                          <span className="inline-flex rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[9px] font-bold text-red-600">
                             Sale
                           </span>
                         ) : (
-                          <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-600">
+                          <span className="inline-flex rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-600">
                             Payment
                           </span>
                         )}
                       </td>
 
-                      <td className="px-4 py-4 text-xs text-slate-500">
-                        {String(entry.reference || "—").slice(0, 30)}
+                      {/* Reference */}
+
+                      <td className="border-r border-slate-200 px-2 text-[10px] text-slate-500">
+                        <span title={String(entry.reference || "—")}>
+                          {String(entry.reference || "—").slice(0, 24)}
+                        </span>
                       </td>
 
-                      <td className="px-4 py-4 text-sm text-slate-700">
-                        {entry.description}
+                      {/* Description */}
+
+                      <td className="border-r border-slate-200 px-2">
+                        <span className="block max-w-[350px] truncate text-[10px] text-slate-700">
+                          {entry.description}
+                        </span>
                       </td>
 
-                      <td className="px-4 py-4 text-right text-sm font-medium text-red-600">
+                      {/* Debit */}
+
+                      <td className="border-r border-slate-200 px-2 text-right font-semibold tabular-nums text-red-600">
                         {entry.debit > 0 ? formatCurrency(entry.debit) : "—"}
                       </td>
 
-                      <td className="px-4 py-4 text-right text-sm font-medium text-emerald-600">
+                      {/* Credit */}
+
+                      <td className="border-r border-slate-200 px-2 text-right font-semibold tabular-nums text-emerald-600">
                         {entry.credit > 0 ? formatCurrency(entry.credit) : "—"}
                       </td>
 
-                      <td className="px-4 py-4 text-right text-sm font-semibold text-slate-900">
+                      {/* Balance */}
+
+                      <td className="border-r border-slate-200 px-2 text-right font-bold tabular-nums text-slate-900">
                         {formatCurrency(entry.balance)}
                       </td>
 
-                      <td className="px-4 py-4 text-right">
+                      {/* Actions */}
+
+                      <td className="px-2 text-center">
                         {entry.type === "payment" && (
-                          <div className="flex justify-end gap-2">
+                          <div className="flex justify-center gap-1">
                             <button
                               type="button"
                               onClick={() => openEditPayment(entry.raw)}
-                              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                              className="h-6 rounded border border-slate-300 bg-white px-2 text-[9px] font-semibold text-slate-600 hover:bg-slate-100"
                             >
                               Edit
                             </button>
@@ -1492,7 +1344,7 @@ function KhatabookSeller() {
                             <button
                               type="button"
                               onClick={() => handleDeletePayment(entry.raw)}
-                              className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100"
+                              className="h-6 rounded border border-red-200 bg-red-50 px-2 text-[9px] font-semibold text-red-600 hover:bg-red-100"
                             >
                               Delete
                             </button>
@@ -1504,6 +1356,20 @@ function KhatabookSeller() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* =================================================
+              FOOTER
+          ================================================= */}
+
+          <div className="flex h-6 items-center justify-between border-t border-slate-300 bg-slate-50 px-2 text-[9px] text-slate-400">
+            <span>Seller Ledger</span>
+
+            <span>
+              {displayAccount.totalSales} sales
+              {" • "}
+              {sellerPayments.length} payments
+            </span>
           </div>
         </div>
       </div>

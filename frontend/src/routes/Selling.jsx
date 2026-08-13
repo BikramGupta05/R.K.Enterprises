@@ -33,6 +33,21 @@ const createEmptyRow = () => ({
   ...EMPTY_ROW,
 });
 
+/*
+ * Stock can contain item either as:
+ *
+ * item: "itemId"
+ *
+ * or:
+ *
+ * item: { _id: "itemId" }
+ *
+ * Keep both cases supported.
+ */
+const getStockItemId = (stock) => {
+  return stock?.item?._id || stock?.item || "";
+};
+
 /* =========================================================
    Selling
 ========================================================= */
@@ -59,6 +74,12 @@ function Selling() {
   const [saleDate, setSaleDate] = useState(getTodayDate);
 
   const [rows, setRows] = useState([createEmptyRow()]);
+
+  /* =======================================================
+     Discount / Off State
+  ======================================================= */
+
+  const [off, setOff] = useState("");
 
   /* =======================================================
      Payment State
@@ -89,7 +110,40 @@ function Selling() {
   }, [stocks]);
 
   /* =======================================================
-     Bill Total
+     Selected Item IDs
+  ======================================================= */
+
+  const selectedItemIds = useMemo(() => {
+    return new Set(rows.map((row) => row.itemId).filter(Boolean));
+  }, [rows]);
+
+  /* =======================================================
+     Stocks Available For Each Row
+  ======================================================= */
+
+  const getStocksForRow = (rowIndex) => {
+    const currentRowItemId = rows[rowIndex]?.itemId || "";
+
+    return availableStocks.filter((stock) => {
+      const stockItemId = getStockItemId(stock);
+
+      /*
+       * Always keep the currently selected item visible
+       * in its own dropdown.
+       */
+      if (stockItemId === currentRowItemId) {
+        return true;
+      }
+
+      /*
+       * Hide items already selected in another row.
+       */
+      return !selectedItemIds.has(stockItemId);
+    });
+  };
+
+  /* =======================================================
+     Items Total
   ======================================================= */
 
   const itemsTotal = useMemo(() => {
@@ -102,7 +156,22 @@ function Selling() {
     }, 0);
   }, [rows]);
 
-  const grandTotal = itemsTotal;
+  /* =======================================================
+     Off / Discount Amount
+  ======================================================= */
+
+  const numericOff = Number(off) || 0;
+
+  /*
+   * Never allow Off to be greater than Items Total.
+   */
+  const discountAmount = Math.min(Math.max(numericOff, 0), itemsTotal);
+
+  /* =======================================================
+     Final Total
+  ======================================================= */
+
+  const grandTotal = Math.max(itemsTotal - discountAmount, 0);
 
   /* =======================================================
      Payment Calculations
@@ -129,11 +198,29 @@ function Selling() {
     setRows((currentRows) => {
       const updatedRows = [...currentRows];
 
+      /*
+       * Prevent duplicate selection even if the event
+       * somehow comes from the UI.
+       */
+      if (field === "itemId" && value) {
+        const alreadySelected = currentRows.some(
+          (row, rowIndex) => rowIndex !== index && row.itemId === value,
+        );
+
+        if (alreadySelected) {
+          return currentRows;
+        }
+      }
+
       updatedRows[index] = {
         ...updatedRows[index],
         [field]: value,
       };
 
+      /*
+       * When item changes, reset quantity and pieces.
+       * Price is intentionally preserved.
+       */
       if (field === "itemId") {
         updatedRows[index] = {
           ...updatedRows[index],
@@ -152,6 +239,14 @@ function Selling() {
   ======================================================= */
 
   const handleAddRow = () => {
+    /*
+     * No reason to add another row if every available
+     * stock item has already been selected.
+     */
+    if (selectedItemIds.size >= availableStocks.length) {
+      return;
+    }
+
     setRows((currentRows) => [...currentRows, createEmptyRow()]);
   };
 
@@ -166,18 +261,59 @@ function Selling() {
   };
 
   /* =======================================================
+     Off Change
+  ======================================================= */
+
+  const handleOffChange = (event) => {
+    const value = event.target.value;
+
+    /*
+     * Allow empty input.
+     */
+    if (value === "") {
+      setOff("");
+
+      return;
+    }
+
+    const amount = Number(value);
+
+    /*
+     * Ignore invalid values.
+     */
+    if (!Number.isFinite(amount)) {
+      return;
+    }
+
+    /*
+     * No negative discount.
+     */
+    if (amount < 0) {
+      return;
+    }
+
+    /*
+     * Don't allow Off to exceed Items Total.
+     */
+    if (amount > itemsTotal) {
+      setOff(itemsTotal.toFixed(2));
+
+      return;
+    }
+
+    setOff(value);
+  };
+
+  /* =======================================================
      Payment Change
   ======================================================= */
 
   const handlePaidAmountChange = (event) => {
     const value = event.target.value;
 
-    /*
-     * Allow the user to clear
-     * the field while typing.
-     */
     if (value === "") {
       setPaidAmount("");
+
       return;
     }
 
@@ -187,16 +323,12 @@ function Selling() {
       return;
     }
 
-    /*
-     * Do not allow negative values.
-     */
     if (amount < 0) {
       return;
     }
 
     /*
-     * Do not allow payment greater
-     * than the bill.
+     * Paid amount cannot exceed Final Total.
      */
     if (amount > grandTotal) {
       setPaidAmount(grandTotal.toFixed(2));
@@ -236,7 +368,7 @@ function Selling() {
       return "Please add at least one item.";
     }
 
-    const selectedItemIds = new Set();
+    const selectedItemIdsForValidation = new Set();
 
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
@@ -253,11 +385,11 @@ function Selling() {
          Duplicate Item
       ----------------------------------------------------- */
 
-      if (selectedItemIds.has(row.itemId)) {
-        return `The same item cannot be added twice. Row ${index + 1}.`;
+      if (selectedItemIdsForValidation.has(row.itemId)) {
+        return "The same item cannot be added twice. " + `Row ${index + 1}.`;
       }
 
-      selectedItemIds.add(row.itemId);
+      selectedItemIdsForValidation.add(row.itemId);
 
       /* -----------------------------------------------------
          Values
@@ -285,11 +417,9 @@ function Selling() {
          Stock
       ----------------------------------------------------- */
 
-      const stock = stocks.find((currentStock) => {
-        const currentItemId = currentStock.item?._id || currentStock.item;
-
-        return currentItemId === row.itemId;
-      });
+      const stock = stocks.find(
+        (currentStock) => getStockItemId(currentStock) === row.itemId,
+      );
 
       if (!stock) {
         return `Stock not found for row ${index + 1}.`;
@@ -298,16 +428,32 @@ function Selling() {
       if (quantity > Number(stock.quantity)) {
         return (
           `You cannot sell ${quantity} quantity of ` +
-          `${stock.itemName}. Only ${stock.quantity} is available.`
+          `${stock.itemName}. Only ${stock.quantity} ` +
+          "is available."
         );
       }
 
       if (pieces > Number(stock.pieces)) {
         return (
           `You cannot sell ${pieces} pieces of ` +
-          `${stock.itemName}. Only ${stock.pieces} are available.`
+          `${stock.itemName}. Only ${stock.pieces} ` +
+          "are available."
         );
       }
+    }
+
+    /* -------------------------------------------------------
+       Off / Discount
+    ------------------------------------------------------- */
+
+    const discount = Number(off) || 0;
+
+    if (discount < 0) {
+      return "Off amount cannot be negative.";
+    }
+
+    if (discount > itemsTotal) {
+      return "Off amount cannot be greater than " + "the Items Total.";
     }
 
     /* -------------------------------------------------------
@@ -321,7 +467,7 @@ function Selling() {
     }
 
     if (amount > grandTotal) {
-      return "Paid amount cannot be greater than " + "the final bill amount.";
+      return "Paid amount cannot be greater than " + "the Final Total.";
     }
 
     if (!PAYMENT_METHODS.includes(paymentMethod)) {
@@ -348,10 +494,6 @@ function Selling() {
       return;
     }
 
-    /* -------------------------------------------------------
-       Sale Payload
-    ------------------------------------------------------- */
-
     const saleData = {
       sellerId,
 
@@ -368,16 +510,19 @@ function Selling() {
       })),
 
       /*
-       * NEW PAYMENT DATA
+       * Discount / Off.
        */
+      off: discountAmount,
+
+      /*
+       * Final amount after Off.
+       */
+      grandTotal,
+
       paidAmount: Number(paidAmount) || 0,
 
       paymentMethod,
     };
-
-    /* -------------------------------------------------------
-       Save Sale
-    ------------------------------------------------------- */
 
     const result = await addSale(saleData);
 
@@ -395,136 +540,152 @@ function Selling() {
   ======================================================= */
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8">
-      <div className="mx-auto w-full max-w-7xl">
+    <div className="min-h-screen bg-slate-50 px-2 py-2 sm:px-3">
+      <div className="mx-auto w-full max-w-[1500px]">
         {/* =================================================
-            Header
+            TOP BAR
         ================================================= */}
 
-        <div className="mb-8 flex items-center justify-between gap-4">
+        <div className="mb-2 flex h-8 items-center justify-between">
           <button
             type="button"
             onClick={() => navigate("/dashboard")}
-            className="rounded-lg border border-slate-300 bg-white px-5 py-2 font-medium text-slate-700 transition hover:bg-slate-100"
+            className="inline-flex h-8 items-center rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
           >
             ← Back
           </button>
 
           <div className="text-right">
-            <h1 className="text-3xl font-bold text-slate-900">Selling</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              Selling
+            </h1>
 
-            <p className="mt-1 text-sm text-slate-500">
-              Record items sold from your stock.
+            <p className="hidden text-xs text-slate-500 sm:block">
+              Record items sold from your stock
             </p>
           </div>
         </div>
 
         {/* =================================================
-            Main
+            MAIN
         ================================================= */}
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
+        <div className="rounded-lg border border-slate-300 bg-white shadow-sm">
           {/* =================================================
-              Seller + Date
+              SELLER + DATE
           ================================================= */}
 
-          <div className="mb-8 grid gap-6 md:grid-cols-2">
-            {/* Seller */}
+          <div className="border-b border-slate-200 bg-slate-50/70 p-2">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {/* Seller */}
 
-            <div>
-              <label
-                htmlFor="seller"
-                className="text-sm font-semibold text-slate-700"
-              >
-                Select Seller
-              </label>
+              <div>
+                <label
+                  htmlFor="seller"
+                  className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500"
+                >
+                  Seller
+                </label>
 
-              <select
-                id="seller"
-                value={sellerId}
-                onChange={(event) => setSellerId(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-              >
-                <option value="">Select seller shop</option>
+                <select
+                  id="seller"
+                  value={sellerId}
+                  onChange={(event) => setSellerId(event.target.value)}
+                  className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
+                >
+                  <option value="">Select seller shop</option>
 
-                {sellers.map((seller) => (
-                  <option key={seller._id} value={seller._id}>
-                    {seller.shopName}
-                  </option>
-                ))}
-              </select>
-            </div>
+                  {sellers.map((seller) => (
+                    <option key={seller._id} value={seller._id}>
+                      {seller.shopName}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            {/* Date */}
+              {/* Date */}
 
-            <div>
-              <label
-                htmlFor="sale-date"
-                className="text-sm font-semibold text-slate-700"
-              >
-                Sale Date
-              </label>
+              <div>
+                <label
+                  htmlFor="sale-date"
+                  className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500"
+                >
+                  Sale Date
+                </label>
 
-              <input
-                id="sale-date"
-                type="date"
-                value={saleDate}
-                onChange={(event) => setSaleDate(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-              />
+                <input
+                  id="sale-date"
+                  type="date"
+                  value={saleDate}
+                  onChange={(event) => setSaleDate(event.target.value)}
+                  className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
+                />
+              </div>
             </div>
           </div>
 
           {/* =================================================
-              Error
+              ERROR
           ================================================= */}
 
           {(error || saleError) && (
-            <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <div className="mx-2 mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
               {error || saleError}
             </div>
           )}
 
           {/* =================================================
-              Loading
+              CONTENT
           ================================================= */}
 
           {loading ? (
-            <div className="rounded-xl bg-slate-50 p-10 text-center text-slate-500">
+            <div className="px-4 py-10 text-center text-xs text-slate-500">
               Loading sellers and stock...
             </div>
           ) : availableStocks.length === 0 ? (
-            <div className="rounded-xl bg-amber-50 p-6 text-center text-amber-700">
-              <h2 className="font-semibold">No Stock Available</h2>
+            <div className="m-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-6 text-center text-amber-700">
+              <h2 className="text-sm font-semibold">No Stock Available</h2>
 
-              <p className="mt-2 text-sm">
+              <p className="mt-1 text-xs">
                 You need to purchase items before you can sell them.
               </p>
             </div>
           ) : (
             <>
               {/* =================================================
-                  Items
+                  ITEMS
               ================================================= */}
 
-              <section>
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[1050px] border-collapse">
+              <section className="p-2">
+                <div className="overflow-x-auto rounded-md border border-slate-300">
+                  <table className="w-full min-w-[950px] border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-slate-300 bg-slate-50 text-left text-sm text-slate-600">
-                        <th className="p-3 font-semibold">Item</th>
+                      <tr className="h-8 border-b border-slate-300 bg-slate-100 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                        <th className="border-r border-slate-200 px-2 text-left">
+                          Item
+                        </th>
 
-                        <th className="p-3 font-semibold">Available</th>
+                        <th className="w-32 border-r border-slate-200 px-2 text-right">
+                          Available
+                        </th>
 
-                        <th className="p-3 font-semibold">Quantity</th>
+                        <th className="w-28 border-r border-slate-200 px-2 text-right">
+                          Quantity
+                        </th>
 
-                        <th className="p-3 font-semibold">Pieces</th>
+                        <th className="w-24 border-r border-slate-200 px-2 text-right">
+                          Pieces
+                        </th>
 
-                        <th className="p-3 font-semibold">Price</th>
+                        <th className="w-28 border-r border-slate-200 px-2 text-right">
+                          Price
+                        </th>
 
-                        <th className="p-3 font-semibold">Total</th>
+                        <th className="w-32 border-r border-slate-200 px-2 text-right">
+                          Total
+                        </th>
 
-                        <th className="p-3 font-semibold">Action</th>
+                        <th className="w-20 px-2 text-center">Action</th>
                       </tr>
                     </thead>
 
@@ -534,7 +695,7 @@ function Selling() {
                           key={`${index}-${row.itemId}`}
                           row={row}
                           index={index}
-                          stocks={availableStocks}
+                          stocks={getStocksForRow(index)}
                           onChange={handleRowChange}
                           onRemove={handleRemoveRow}
                           canRemove={rows.length > 1}
@@ -543,52 +704,92 @@ function Selling() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* Add Item */}
+
+                <div className="mt-2 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={handleAddRow}
+                    disabled={selectedItemIds.size >= availableStocks.length}
+                    className="inline-flex h-7 items-center rounded-md border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    + Add Item
+                  </button>
+
+                  <span className="text-[10px] text-slate-400">
+                    {selectedItemIds.size} / {availableStocks.length} items
+                    selected
+                  </span>
+                </div>
               </section>
 
               {/* =================================================
-                  Add Item
+                  SUMMARY + PAYMENT
               ================================================= */}
 
-              <div className="mt-5">
-                <button
-                  type="button"
-                  onClick={handleAddRow}
-                  className="rounded-xl border border-slate-300 bg-white px-5 py-3 font-medium text-slate-700 transition hover:bg-slate-100"
-                >
-                  + Add More Items
-                </button>
-              </div>
-
-              {/* =================================================
-                  BILL SUMMARY
-              ================================================= */}
-
-              <section className="mt-8 border-t border-slate-200 pt-8">
-                <div className="grid gap-8 lg:grid-cols-2">
+              <section className="border-t border-slate-200 bg-slate-50/50 p-2">
+                <div className="grid gap-2 lg:grid-cols-2">
                   {/* =================================================
-                      Bill Summary
+                      BILL SUMMARY
                   ================================================= */}
 
-                  <div>
-                    <h2 className="text-lg font-bold text-slate-900">
-                      Bill Summary
-                    </h2>
+                  <div className="rounded-md border border-slate-300 bg-white">
+                    <div className="border-b border-slate-200 bg-slate-100 px-3 py-2">
+                      <h2 className="text-xs font-bold uppercase tracking-wide text-slate-700">
+                        Bill Summary
+                      </h2>
+                    </div>
 
-                    <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
-                      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-                        <span className="text-slate-600">Items Total</span>
+                    <div className="divide-y divide-slate-100">
+                      {/* Items Total */}
 
-                        <span className="font-semibold text-slate-900">
+                      <div className="flex h-8 items-center justify-between px-3 text-xs">
+                        <span className="text-slate-500">Items Total</span>
+
+                        <span className="font-semibold tabular-nums text-slate-900">
                           ₹{itemsTotal.toFixed(2)}
                         </span>
                       </div>
 
-                      <div className="flex items-center justify-between bg-slate-50 px-5 py-5">
-                        <span className="text-lg font-bold text-slate-900">
+                      {/* Off */}
+
+                      <div className="flex h-9 items-center justify-between bg-slate-50 px-3">
+                        <label
+                          htmlFor="off"
+                          className="text-xs font-medium text-slate-600"
+                        >
+                          Off
+                        </label>
+
+                        <div className="relative w-28">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                            ₹
+                          </span>
+
+                          <input
+                            id="off"
+                            type="number"
+                            min="0"
+                            max={itemsTotal}
+                            step="0.01"
+                            value={off}
+                            onChange={handleOffChange}
+                            onWheel={(event) => event.currentTarget.blur()}
+                            placeholder="0.00"
+                            className="h-7 w-full rounded-md border border-slate-300 bg-white pl-6 pr-2 text-right text-xs font-semibold tabular-nums text-slate-800 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Final Total */}
+
+                      <div className="flex h-10 items-center justify-between bg-slate-50 px-3">
+                        <span className="text-sm font-bold text-slate-900">
                           Final Total
                         </span>
 
-                        <span className="text-2xl font-bold text-slate-900">
+                        <span className="text-lg font-bold tabular-nums text-slate-900">
                           ₹{grandTotal.toFixed(2)}
                         </span>
                       </div>
@@ -596,126 +797,129 @@ function Selling() {
                   </div>
 
                   {/* =================================================
-                      Payment Details
+                      PAYMENT
                   ================================================= */}
 
-                  <div>
-                    <h2 className="text-lg font-bold text-slate-900">
-                      Payment Details
-                    </h2>
+                  <div className="rounded-md border border-slate-300 bg-white">
+                    <div className="border-b border-slate-200 bg-slate-100 px-3 py-2">
+                      <h2 className="text-xs font-bold uppercase tracking-wide text-slate-700">
+                        Payment Details
+                      </h2>
+                    </div>
 
-                    <div className="mt-4 space-y-5 rounded-xl border border-slate-200 p-5">
-                      {/* Paid Amount */}
+                    <div className="p-2">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {/* Paid Amount */}
 
-                      <div>
-                        <label
-                          htmlFor="paid-amount"
-                          className="text-sm font-semibold text-slate-700"
-                        >
-                          Paid Amount
-                        </label>
+                        <div>
+                          <label
+                            htmlFor="paid-amount"
+                            className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500"
+                          >
+                            Paid Amount
+                          </label>
 
-                        <div className="relative mt-2">
-                          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
-                            ₹
-                          </span>
+                          <div className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                              ₹
+                            </span>
 
-                          <input
-                            id="paid-amount"
-                            type="number"
-                            min="0"
-                            max={grandTotal}
-                            step="0.01"
-                            value={paidAmount}
-                            onChange={handlePaidAmountChange}
-                            placeholder="0.00"
-                            className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-9 pr-4 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-                          />
+                            <input
+                              id="paid-amount"
+                              type="number"
+                              min="0"
+                              max={grandTotal}
+                              step="0.01"
+                              value={paidAmount}
+                              onChange={handlePaidAmountChange}
+                              onWheel={(event) => event.currentTarget.blur()}
+                              placeholder="0.00"
+                              className="h-8 w-full rounded-md border border-slate-300 bg-white pl-6 pr-2 text-xs font-medium tabular-nums text-slate-800 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
+                            />
+                          </div>
+
+                          <p className="mt-1 text-[9px] text-slate-400">
+                            Max ₹{grandTotal.toFixed(2)}
+                          </p>
                         </div>
 
-                        <p className="mt-1 text-xs text-slate-500">
-                          Maximum payment: ₹{grandTotal.toFixed(2)}
-                        </p>
+                        {/* Payment Method */}
+
+                        <div>
+                          <label
+                            htmlFor="payment-method"
+                            className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500"
+                          >
+                            Payment Method
+                          </label>
+
+                          <select
+                            id="payment-method"
+                            value={paymentMethod}
+                            onChange={(event) =>
+                              setPaymentMethod(event.target.value)
+                            }
+                            className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
+                          >
+                            {PAYMENT_METHODS.map((method) => (
+                              <option key={method} value={method}>
+                                {method}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
 
-                      {/* Payment Method */}
+                      {/* Remaining + Status */}
 
-                      <div>
-                        <label
-                          htmlFor="payment-method"
-                          className="text-sm font-semibold text-slate-700"
-                        >
-                          Payment Method
-                        </label>
-
-                        <select
-                          id="payment-method"
-                          value={paymentMethod}
-                          onChange={(event) =>
-                            setPaymentMethod(event.target.value)
-                          }
-                          className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-                        >
-                          {PAYMENT_METHODS.map((method) => (
-                            <option key={method} value={method}>
-                              {method}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Remaining */}
-
-                      <div className="rounded-xl bg-amber-50 px-5 py-4">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium text-amber-800">
-                            Remaining Amount
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <div className="flex h-9 items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-2.5">
+                          <span className="text-[10px] font-semibold text-amber-700">
+                            Remaining
                           </span>
 
-                          <span className="text-xl font-bold text-amber-900">
+                          <span className="text-sm font-bold tabular-nums text-amber-900">
                             ₹{creditAmount.toFixed(2)}
                           </span>
                         </div>
-                      </div>
 
-                      {/* Status */}
+                        <div className="flex h-9 items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-2.5">
+                          <span className="text-[10px] font-semibold text-slate-600">
+                            Status
+                          </span>
 
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-slate-700">
-                          Payment Status
-                        </span>
-
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-bold ${
-                            paymentStatus === "PAID"
-                              ? "bg-green-100 text-green-700"
-                              : paymentStatus === "PARTIAL"
-                                ? "bg-yellow-100 text-yellow-700"
-                                : "bg-red-100 text-red-700"
-                          }`}
-                        >
-                          {paymentStatus}
-                        </span>
+                          <span
+                            className={`rounded px-2 py-1 text-[9px] font-bold ${
+                              paymentStatus === "PAID"
+                                ? "bg-green-100 text-green-700"
+                                : paymentStatus === "PARTIAL"
+                                  ? "bg-yellow-100 text-yellow-700"
+                                  : "bg-red-100 text-red-700"
+                            }`}
+                          >
+                            {paymentStatus}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
+
+                {/* =================================================
+                    SAVE
+                ================================================= */}
+
+                <div className="mt-2 flex justify-end">
+                  <button
+                    type="button"
+                    disabled={saving || grandTotal <= 0}
+                    onClick={handleSubmit}
+                    className="h-8 rounded-md bg-slate-900 px-5 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {saving ? "Saving..." : "Save Sale"}
+                  </button>
+                </div>
               </section>
-
-              {/* =================================================
-                  Save
-              ================================================= */}
-
-              <div className="mt-8 flex justify-end">
-                <button
-                  type="button"
-                  disabled={saving || grandTotal <= 0}
-                  onClick={handleSubmit}
-                  className="rounded-xl bg-slate-900 px-8 py-3 font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {saving ? "Saving Sale..." : "Save Sale"}
-                </button>
-              </div>
             </>
           )}
         </div>

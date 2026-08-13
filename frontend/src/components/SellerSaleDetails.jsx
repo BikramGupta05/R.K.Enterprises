@@ -1,8 +1,18 @@
+import { useMemo, useState } from "react";
+
 function SellerSaleDetails({ seller, sales, loading, onBack, onViewSale }) {
+  const [search, setSearch] = useState("");
+
   const formatDate = (date) => {
     if (!date) return "N/A";
 
-    return new Date(date).toLocaleDateString("en-IN", {
+    const parsedDate = new Date(date);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return "N/A";
+    }
+
+    return parsedDate.toLocaleDateString("en-IN", {
       day: "2-digit",
       month: "short",
       year: "numeric",
@@ -10,168 +20,348 @@ function SellerSaleDetails({ seller, sales, loading, onBack, onViewSale }) {
   };
 
   const formatMoney = (value) => {
-    return `₹${Number(value || 0).toFixed(2)}`;
+    return `₹${Number(value || 0).toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
   };
 
-  const totalSales = sales?.length || 0;
+  /*
+   * Search sales by sale number.
+   * Seller name is already fixed by this page, so there is no need
+   * to repeat it in the search.
+   */
 
-  const totalAmount =
-    sales?.reduce((sum, sale) => sum + Number(sale.grandTotal || 0), 0) || 0;
+  const filteredSales = useMemo(() => {
+    const searchValue = search.trim().toLowerCase();
+
+    if (!searchValue) {
+      return sales || [];
+    }
+
+    return (sales || []).filter((sale) =>
+      String(sale.saleNumber || "")
+        .toLowerCase()
+        .includes(searchValue),
+    );
+  }, [sales, search]);
+
+  /*
+   * Calculate totals from the currently displayed sales.
+   */
+
+  const totalSales = filteredSales.length;
+
+  const totalItems = filteredSales.reduce(
+    (sum, sale) => sum + Number(sale.items?.length || 0),
+    0,
+  );
+
+  const totalItemsAmount = filteredSales.reduce(
+    (sum, sale) => sum + Number(sale.itemsTotal || 0),
+    0,
+  );
+
+  const totalCarriage = filteredSales.reduce(
+    (sum, sale) => sum + Number(sale.carriage || 0),
+    0,
+  );
+
+  const totalAmount = filteredSales.reduce(
+    (sum, sale) => sum + Number(sale.grandTotal || 0),
+    0,
+  );
+
+  if (!seller) {
+    return null;
+  }
 
   return (
-    <div>
-      {/* Header */}
+    <div className="overflow-hidden border border-slate-300 bg-white">
+      {/* =====================================================
+          HEADER
+      ===================================================== */}
 
-      <div className="mb-6 flex items-center justify-between gap-4">
-        <button
-          type="button"
-          onClick={onBack}
-          className="rounded-lg border border-slate-300 bg-white px-5 py-2 font-medium text-slate-700 transition hover:bg-slate-100"
-        >
-          ← Back to Sellers
-        </button>
+      <div className="flex h-10 items-center justify-between gap-3 border-b border-slate-300 bg-white px-2">
+        <div className="flex min-w-0 items-center gap-3">
+          <button
+            type="button"
+            onClick={onBack}
+            className="h-7 shrink-0 rounded border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100"
+          >
+            ← Back
+          </button>
+
+          <h2
+            className="truncate text-sm font-bold text-slate-900"
+            title={seller.sellerName || ""}
+          >
+            {seller.sellerName || "Seller"}
+          </h2>
+        </div>
+
+        <span className="whitespace-nowrap text-[10px] font-medium text-slate-400">
+          {filteredSales.length} of {(sales || []).length} sales
+        </span>
       </div>
 
-      {/* Seller heading */}
+      {/* =====================================================
+          SUMMARY
+      ===================================================== */}
 
-      <div className="mb-6">
-        <h2 className="text-3xl font-bold text-slate-900">
-          {seller?.sellerName || "Seller"}
-        </h2>
+      <div className="grid grid-cols-5 border-b border-slate-300 bg-slate-50">
+        {/* Sales */}
 
-        <p className="mt-1 text-slate-500">
-          Complete sales history for this seller.
-        </p>
+        <div className="border-r border-slate-200 px-2 py-1.5">
+          <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            Sales
+          </p>
+
+          <p className="mt-0.5 text-xs font-bold tabular-nums text-slate-900">
+            {totalSales}
+          </p>
+        </div>
+
+        {/* Items */}
+
+        <div className="border-r border-slate-200 px-2 py-1.5">
+          <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            Items
+          </p>
+
+          <p className="mt-0.5 text-xs font-bold tabular-nums text-slate-900">
+            {totalItems}
+          </p>
+        </div>
+
+        {/* Items Total */}
+
+        <div className="border-r border-slate-200 px-2 py-1.5">
+          <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            Items Total
+          </p>
+
+          <p className="mt-0.5 text-xs font-bold tabular-nums text-slate-900">
+            {formatMoney(totalItemsAmount)}
+          </p>
+        </div>
+
+        {/* Carriage */}
+
+        <div className="border-r border-slate-200 px-2 py-1.5">
+          <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            Carriage
+          </p>
+
+          <p className="mt-0.5 text-xs font-bold tabular-nums text-slate-900">
+            {formatMoney(totalCarriage)}
+          </p>
+        </div>
+
+        {/* Total */}
+
+        <div className="px-2 py-1.5">
+          <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            Total Received
+          </p>
+
+          <p className="mt-0.5 text-xs font-bold tabular-nums text-slate-900">
+            {formatMoney(totalAmount)}
+          </p>
+        </div>
       </div>
 
-      {/* Summary table */}
+      {/* =====================================================
+          SEARCH
+      ===================================================== */}
 
-      <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex h-9 items-center justify-between gap-3 border-b border-slate-300 px-2">
+        <div className="relative w-[280px]">
+          <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+            🔍
+          </span>
+
+          <input
+            type="text"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search sale number..."
+            className="h-7 w-full rounded border border-slate-300 bg-white pl-7 pr-2 text-[10px] font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
+          />
+        </div>
+
+        <span className="whitespace-nowrap text-[10px] font-medium text-slate-400">
+          {filteredSales.length} of {(sales || []).length}
+        </span>
+      </div>
+
+      {/* =====================================================
+          LOADING
+      ===================================================== */}
+
+      {loading ? (
+        <div className="px-4 py-8 text-center text-xs text-slate-500">
+          Loading seller history...
+        </div>
+      ) : filteredSales.length === 0 ? (
+        /* ===================================================
+           EMPTY
+        =================================================== */
+
+        <div className="px-4 py-8 text-center">
+          <h3 className="text-sm font-semibold text-slate-700">
+            {search ? "No Sales Found" : "No Sales Found"}
+          </h3>
+
+          <p className="mt-1 text-[10px] text-slate-400">
+            {search
+              ? `No sale matches "${search}".`
+              : "No sales were found for this seller."}
+          </p>
+        </div>
+      ) : (
+        /* ===================================================
+           SALES TABLE
+        =================================================== */
+
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[500px]">
+          <table className="w-full min-w-[850px] border-collapse text-xs">
+            {/* =================================================
+                TABLE HEADER
+            ================================================= */}
+
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50">
-                <th className="px-6 py-4 text-left text-sm font-semibold text-slate-600">
-                  Total Sales
+              <tr className="h-8 border-b border-slate-300 bg-slate-100">
+                <th className="w-[125px] border-r border-slate-300 px-2 text-left text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                  Date
                 </th>
 
-                <th className="px-6 py-4 text-right text-sm font-semibold text-slate-600">
-                  Total Received
+                <th className="border-r border-slate-300 px-2 text-left text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                  Sale Number
+                </th>
+
+                <th className="w-[80px] border-r border-slate-300 px-2 text-right text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                  Items
+                </th>
+
+                <th className="w-[140px] border-r border-slate-300 px-2 text-right text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                  Items Total
+                </th>
+
+                <th className="w-[120px] border-r border-slate-300 px-2 text-right text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                  Carriage
+                </th>
+
+                <th className="w-[150px] border-r border-slate-300 px-2 text-right text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                  Grand Total
+                </th>
+
+                <th className="w-[80px] px-2 text-center text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                  View
                 </th>
               </tr>
             </thead>
 
+            {/* =================================================
+                TABLE BODY
+            ================================================= */}
+
             <tbody>
-              <tr>
-                <td className="px-6 py-5 text-xl font-bold text-slate-900">
-                  {totalSales}
+              {filteredSales.map((sale) => (
+                <tr
+                  key={sale._id}
+                  className="h-9 border-b border-slate-200 last:border-b-0 hover:bg-slate-50"
+                >
+                  {/* Date */}
+
+                  <td className="whitespace-nowrap border-r border-slate-200 px-2 text-[10px] text-slate-600">
+                    {formatDate(sale.saleDate)}
+                  </td>
+
+                  {/* Sale Number */}
+
+                  <td className="border-r border-slate-200 px-2">
+                    <span
+                      className="block max-w-[400px] truncate text-[11px] font-semibold text-slate-900"
+                      title={sale.saleNumber || ""}
+                    >
+                      {sale.saleNumber || "—"}
+                    </span>
+                  </td>
+
+                  {/* Items */}
+
+                  <td className="border-r border-slate-200 px-2 text-right font-medium tabular-nums text-slate-900">
+                    {sale.items?.length || 0}
+                  </td>
+
+                  {/* Items Total */}
+
+                  <td className="border-r border-slate-200 px-2 text-right tabular-nums text-slate-700">
+                    {formatMoney(sale.itemsTotal)}
+                  </td>
+
+                  {/* Carriage */}
+
+                  <td className="border-r border-slate-200 px-2 text-right tabular-nums text-slate-700">
+                    {formatMoney(sale.carriage)}
+                  </td>
+
+                  {/* Grand Total */}
+
+                  <td className="border-r border-slate-200 px-2 text-right font-bold tabular-nums text-slate-900">
+                    {formatMoney(sale.grandTotal)}
+                  </td>
+
+                  {/* Details */}
+
+                  <td className="px-2 text-center">
+                    <button
+                      type="button"
+                      onClick={() => onViewSale(sale)}
+                      className="h-6 rounded border border-slate-300 bg-white px-2.5 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-100"
+                    >
+                      Details
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+
+            {/* =================================================
+                TOTAL ROW
+            ================================================= */}
+
+            <tfoot>
+              <tr className="h-7 border-t border-slate-300 bg-slate-50">
+                <td
+                  colSpan="2"
+                  className="px-2 text-[9px] font-semibold text-slate-500"
+                >
+                  {filteredSales.length} sale
+                  {filteredSales.length !== 1 ? "s" : ""}
                 </td>
 
-                <td className="px-6 py-5 text-right text-xl font-bold text-slate-900">
+                <td className="border-l border-slate-200 px-2 text-right text-[10px] font-bold tabular-nums text-slate-700">
+                  {totalItems}
+                </td>
+
+                <td className="border-l border-slate-200 px-2 text-right text-[10px] font-bold tabular-nums text-slate-700">
+                  {formatMoney(totalItemsAmount)}
+                </td>
+
+                <td className="border-l border-slate-200 px-2 text-right text-[10px] font-bold tabular-nums text-slate-700">
+                  {formatMoney(totalCarriage)}
+                </td>
+
+                <td className="border-l border-slate-200 px-2 text-right text-[10px] font-bold tabular-nums text-slate-900">
                   {formatMoney(totalAmount)}
                 </td>
+
+                <td />
               </tr>
-            </tbody>
+            </tfoot>
           </table>
-        </div>
-      </div>
-
-      {/* History */}
-
-      {loading ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-          Loading seller history...
-        </div>
-      ) : sales?.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-          <h3 className="text-xl font-semibold text-slate-700">
-            No Sales Found
-          </h3>
-
-          <p className="mt-2 text-slate-500">
-            No sales were found for this seller.
-          </p>
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50">
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-slate-600">
-                    Date
-                  </th>
-
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-slate-600">
-                    Sale Number
-                  </th>
-
-                  <th className="px-6 py-4 text-right text-sm font-semibold text-slate-600">
-                    Items
-                  </th>
-
-                  <th className="px-6 py-4 text-right text-sm font-semibold text-slate-600">
-                    Items Total
-                  </th>
-
-                  <th className="px-6 py-4 text-right text-sm font-semibold text-slate-600">
-                    Carriage
-                  </th>
-
-                  <th className="px-6 py-4 text-right text-sm font-semibold text-slate-600">
-                    Grand Total
-                  </th>
-
-                  <th className="px-6 py-4 text-center text-sm font-semibold text-slate-600">
-                    View
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {sales.map((sale) => (
-                  <tr
-                    key={sale._id}
-                    className="border-b border-slate-100 transition hover:bg-slate-50 last:border-b-0"
-                  >
-                    <td className="whitespace-nowrap px-6 py-5 text-slate-700">
-                      {formatDate(sale.saleDate)}
-                    </td>
-
-                    <td className="px-6 py-5 font-medium text-slate-900">
-                      {sale.saleNumber}
-                    </td>
-
-                    <td className="px-6 py-5 text-right text-slate-700">
-                      {sale.items?.length || 0}
-                    </td>
-
-                    <td className="px-6 py-5 text-right text-slate-700">
-                      {formatMoney(sale.itemsTotal)}
-                    </td>
-
-                    <td className="px-6 py-5 text-right text-slate-700">
-                      {formatMoney(sale.carriage)}
-                    </td>
-
-                    <td className="px-6 py-5 text-right font-bold text-slate-900">
-                      {formatMoney(sale.grandTotal)}
-                    </td>
-
-                    <td className="px-6 py-5 text-center">
-                      <button
-                        type="button"
-                        onClick={() => onViewSale(sale)}
-                        className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                      >
-                        Details
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
       )}
     </div>

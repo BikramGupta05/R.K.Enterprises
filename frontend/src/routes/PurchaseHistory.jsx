@@ -1,19 +1,12 @@
 import { useEffect, useState } from "react";
-
 import { useNavigate } from "react-router-dom";
 
 import PurchaseDetails from "../components/PurchaseDetails.jsx";
-
 import PurchaseHistoryTabs from "../components/PurchaseHistoryTabs.jsx";
-
 import PurchaseDateFilter from "../components/PurchaseDateFilter.jsx";
-
 import BuyerPurchaseSummary from "../components/BuyerPurchaseSummary.jsx";
-
 import BuyerPurchaseDetails from "../components/BuyerPurchaseDetails.jsx";
-
 import ItemPurchaseSummary from "../components/ItemPurchaseSummary.jsx";
-
 import ItemPurchaseDetails from "../components/ItemPurchaseDetails.jsx";
 
 import usePurchaseHistory from "../hooks/usePurchaseHistory.js";
@@ -21,104 +14,59 @@ import usePurchaseHistory from "../hooks/usePurchaseHistory.js";
 function PurchaseHistory() {
   const navigate = useNavigate();
 
-  /* =========================================================
-     Purchase History Hook
-  ========================================================= */
-
   const {
     purchases,
-
     buyerSummaries,
     buyerHistory,
-
     itemSummaries,
     itemHistory,
-
     selectedBuyer,
     selectedItem,
-
     buyerDetails,
     itemDetails,
-
     loading,
     error,
-
     loadPurchases,
     loadBuyerSummaries,
     loadBuyerHistory,
-
     loadItemSummaries,
     loadItemHistory,
-
     clearBuyerHistory,
     clearItemHistory,
-
     clearError,
   } = usePurchaseHistory();
 
-  /* =========================================================
-     Active Section
-  ========================================================= */
-
   const [activeTab, setActiveTab] = useState("all");
-
-  /* =========================================================
-     Selected Purchase
-  ========================================================= */
 
   const [selectedPurchase, setSelectedPurchase] = useState(null);
 
-  /* =========================================================
-     Search
-  ========================================================= */
-
   const [search, setSearch] = useState("");
 
-  /* =========================================================
-     All Purchase Date Filter
-  ========================================================= */
-
   const [allFrom, setAllFrom] = useState("");
-
   const [allTo, setAllTo] = useState("");
 
-  /* =========================================================
-     Buyer Date Filter
-  ========================================================= */
-
   const [buyerFrom, setBuyerFrom] = useState("");
-
   const [buyerTo, setBuyerTo] = useState("");
 
-  /* =========================================================
-     Item Date Filter
-  ========================================================= */
-
   const [itemFrom, setItemFrom] = useState("");
-
   const [itemTo, setItemTo] = useState("");
 
-  /* =========================================================
-     Initial Load
-  ========================================================= */
-
+  /*
+   * Initial load
+   */
   useEffect(() => {
     loadPurchases();
     loadBuyerSummaries();
     loadItemSummaries();
   }, [loadPurchases, loadBuyerSummaries, loadItemSummaries]);
 
-  /* =========================================================
-     Change Section
-  ========================================================= */
-
+  /*
+   * Change active tab
+   */
   const handleTabChange = async (tab) => {
     setActiveTab(tab);
-
     setSearch("");
-
     setSelectedPurchase(null);
-
     clearError();
 
     if (tab === "all") {
@@ -151,16 +99,14 @@ function PurchaseHistory() {
     }
   };
 
-  /* =========================================================
-     All Purchases Filter
-  ========================================================= */
-
+  /*
+   * All purchases filter
+   */
   const applyAllFilter = async () => {
     setSelectedPurchase(null);
 
     await loadPurchases({
       from: allFrom || undefined,
-
       to: allTo || undefined,
     });
   };
@@ -169,20 +115,19 @@ function PurchaseHistory() {
     setAllFrom("");
     setAllTo("");
     setSearch("");
+    setSelectedPurchase(null);
 
     await loadPurchases();
   };
 
-  /* =========================================================
-     Buyer Filter
-  ========================================================= */
-
+  /*
+   * Buyer filter
+   */
   const applyBuyerFilter = async () => {
     clearBuyerHistory();
 
     await loadBuyerSummaries({
       from: buyerFrom || undefined,
-
       to: buyerTo || undefined,
     });
   };
@@ -196,16 +141,14 @@ function PurchaseHistory() {
     await loadBuyerSummaries();
   };
 
-  /* =========================================================
-     Item Filter
-  ========================================================= */
-
+  /*
+   * Item filter
+   */
   const applyItemFilter = async () => {
     clearItemHistory();
 
     await loadItemSummaries({
       from: itemFrom || undefined,
-
       to: itemTo || undefined,
     });
   };
@@ -219,38 +162,33 @@ function PurchaseHistory() {
     await loadItemSummaries();
   };
 
-  /* =========================================================
-     Select Buyer
-  ========================================================= */
-
+  /*
+   * Select buyer
+   */
   const handleBuyerSelect = async (buyer) => {
     setSelectedPurchase(null);
 
     await loadBuyerHistory(buyer._id, {
       from: buyerFrom || undefined,
-
       to: buyerTo || undefined,
     });
   };
 
-  /* =========================================================
-     Select Item
-  ========================================================= */
-
+  /*
+   * Select item
+   */
   const handleItemSelect = async (item) => {
     setSelectedPurchase(null);
 
     await loadItemHistory(item._id, {
       from: itemFrom || undefined,
-
       to: itemTo || undefined,
     });
   };
 
-  /* =========================================================
-     Search All Purchases
-  ========================================================= */
-
+  /*
+   * Search purchases
+   */
   const filteredPurchases = purchases.filter((purchase) => {
     const value = search.trim().toLowerCase();
 
@@ -264,38 +202,99 @@ function PurchaseHistory() {
     );
   });
 
-  /* =========================================================
-     View Purchase Details
-  ========================================================= */
-
+  /*
+   * View purchase
+   */
   const handleViewPurchase = (purchase) => {
     setSelectedPurchase(purchase);
   };
 
-  /* =========================================================
-     Close Purchase Details
-  ========================================================= */
-
+  /*
+   * Close purchase details
+   */
   const closePurchaseDetails = () => {
     setSelectedPurchase(null);
   };
 
-  /* =========================================================
-     Render
-  ========================================================= */
+  /*
+   * Format date
+   */
+  const formatDate = (dateValue) => {
+    if (!dateValue) {
+      return "—";
+    }
+
+    const date = new Date(dateValue);
+
+    if (Number.isNaN(date.getTime())) {
+      return "—";
+    }
+
+    return date.toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  /*
+   * Render active date filter
+   */
+  const renderActiveDateFilter = () => {
+    if (activeTab === "all") {
+      return (
+        <PurchaseDateFilter
+          from={allFrom}
+          to={allTo}
+          onFromChange={setAllFrom}
+          onToChange={setAllTo}
+          onApply={applyAllFilter}
+          onClear={clearAllFilter}
+          loading={loading}
+        />
+      );
+    }
+
+    if (activeTab === "buyer" && !selectedBuyer) {
+      return (
+        <PurchaseDateFilter
+          from={buyerFrom}
+          to={buyerTo}
+          onFromChange={setBuyerFrom}
+          onToChange={setBuyerTo}
+          onApply={applyBuyerFilter}
+          onClear={clearBuyerFilter}
+          loading={loading}
+        />
+      );
+    }
+
+    if (activeTab === "item" && !selectedItem) {
+      return (
+        <PurchaseDateFilter
+          from={itemFrom}
+          to={itemTo}
+          onFromChange={setItemFrom}
+          onToChange={setItemTo}
+          onApply={applyItemFilter}
+          onClear={clearItemFilter}
+          loading={loading}
+        />
+      );
+    }
+
+    return null;
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8">
-      <div className="mx-auto w-full max-w-6xl">
-        {/* =================================================
-            Header
-        ================================================= */}
-
-        <div className="mb-8 flex items-center justify-between gap-4">
+    <div className="min-h-screen bg-slate-50 px-2 py-2 sm:px-3">
+      <div className="mx-auto w-full max-w-[1500px]">
+        {/* Top Bar */}
+        <div className="mb-2 flex items-center justify-between">
           <button
             type="button"
             onClick={() => navigate("/dashboard")}
-            className="rounded-lg border border-slate-300 bg-white px-5 py-2 font-medium text-slate-700 transition hover:bg-slate-100"
+            className="inline-flex h-8 items-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
           >
             ← Back
           </button>
@@ -303,228 +302,231 @@ function PurchaseHistory() {
           <button
             type="button"
             onClick={() => navigate("/purchase")}
-            className="rounded-lg bg-slate-900 px-5 py-2 font-medium text-white transition hover:bg-slate-800"
+            className="inline-flex h-8 items-center rounded-md bg-slate-900 px-3.5 text-sm font-semibold text-white transition hover:bg-slate-800"
           >
             + New Purchase
           </button>
         </div>
 
-        {/* =================================================
-            Title
-        ================================================= */}
+        {/* Title */}
+        <div className="mb-2 flex items-end justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              Purchase History
+            </h1>
 
-        <div className="mb-6">
-          <h1 className="text-4xl font-bold text-slate-900">
-            Purchase History
-          </h1>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Purchase records and summaries
+            </p>
+          </div>
 
-          <p className="mt-2 text-slate-500">
-            View and analyse all your previous purchases.
-          </p>
+          {activeTab === "all" && (
+            <div className="text-xs font-medium text-slate-500">
+              {filteredPurchases.length}{" "}
+              {filteredPurchases.length === 1 ? "record" : "records"}
+            </div>
+          )}
         </div>
 
-        {/* =================================================
-            Tabs
-        ================================================= */}
+        {/* =====================================================
+            TABS + DATE FILTER
+            LEFT AND RIGHT CORNERS
+        ===================================================== */}
 
-        <PurchaseHistoryTabs activeTab={activeTab} onChange={handleTabChange} />
+        <div className="mb-2 flex w-full items-start justify-between gap-8 rounded-lg border border-slate-200 bg-white p-1.5 shadow-sm">
+          {/* LEFT: Tabs */}
+          <div className="shrink-0">
+            <PurchaseHistoryTabs
+              activeTab={activeTab}
+              onChange={handleTabChange}
+            />
+          </div>
 
-        {/* =================================================
-            Global Error
-        ================================================= */}
+          {/* RIGHT: Date Filter */}
+          <div className="shrink-0">{renderActiveDateFilter()}</div>
+        </div>
 
+        {/* Error */}
         {error && (
-          <div className="mb-6 flex items-center justify-between gap-4 rounded-xl bg-red-50 p-4 text-sm text-red-700">
+          <div className="mb-2 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
             <span>{error}</span>
 
             <button
               type="button"
               onClick={clearError}
-              className="font-semibold text-red-800 hover:underline"
+              className="font-bold text-red-800 hover:text-red-950"
             >
               ×
             </button>
           </div>
         )}
 
-        {/* =================================================
-            SECTION 1
+        {/* =====================================================
             ALL PURCHASES
-        ================================================= */}
+        ===================================================== */}
 
         {activeTab === "all" && (
           <section>
-            <PurchaseDateFilter
-              from={allFrom}
-              to={allTo}
-              onFromChange={setAllFrom}
-              onToChange={setAllTo}
-              onApply={applyAllFilter}
-              onClear={clearAllFilter}
-              loading={loading}
-            />
-
             {/* Search */}
+            <div className="mb-2 flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search buyer or purchase number..."
+                  className="h-8 w-full rounded-md border border-slate-300 bg-white px-3 text-xs text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
+                />
+              </div>
 
-            <div className="mb-6">
-              <input
-                type="text"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search by buyer name or purchase number..."
-                className="w-full rounded-xl border border-slate-300 bg-white px-5 py-3 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-600 transition hover:bg-slate-100"
+                >
+                  Clear
+                </button>
+              )}
             </div>
 
             {/* Loading */}
-
             {loading ? (
-              <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+              <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-xs text-slate-500">
                 Loading purchase history...
               </div>
             ) : filteredPurchases.length === 0 ? (
-              <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
-                <h2 className="text-xl font-semibold text-slate-700">
+              <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center">
+                <h2 className="text-sm font-semibold text-slate-700">
                   No Purchases Found
                 </h2>
 
-                <p className="mt-2 text-slate-500">
-                  No purchases match your current filter.
+                <p className="mt-1 text-xs text-slate-500">
+                  No purchases match the current filter.
                 </p>
               </div>
             ) : (
-              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[1000px] border-collapse">
+                  <table className="w-full min-w-[900px] border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50">
-                        <th className="px-6 py-4 text-left text-sm font-semibold text-slate-600">
+                      <tr className="border-b border-slate-300 bg-slate-100 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                        <th className="w-[105px] border-r border-slate-200 px-2.5 py-2 text-left">
                           Date
                         </th>
 
-                        <th className="px-6 py-4 text-left text-sm font-semibold text-slate-600">
-                          Buyer / Shop
+                        <th className="min-w-[150px] border-r border-slate-200 px-2.5 py-2 text-left">
+                          Buyer
                         </th>
 
-                        <th className="px-6 py-4 text-left text-sm font-semibold text-slate-600">
-                          Purchase Number
+                        <th className="min-w-[170px] border-r border-slate-200 px-2.5 py-2 text-left">
+                          Purchase No.
                         </th>
 
-                        <th className="px-6 py-4 text-right text-sm font-semibold text-slate-600">
+                        <th className="w-[65px] border-r border-slate-200 px-2.5 py-2 text-right">
                           Items
                         </th>
 
-                        <th className="px-6 py-4 text-right text-sm font-semibold text-slate-600">
+                        <th className="w-[120px] border-r border-slate-200 px-2.5 py-2 text-right">
                           Items Total
                         </th>
 
-                        <th className="px-6 py-4 text-right text-sm font-semibold text-slate-600">
+                        <th className="w-[105px] border-r border-slate-200 px-2.5 py-2 text-right">
                           Carriage
                         </th>
 
-                        <th className="px-6 py-4 text-right text-sm font-semibold text-slate-600">
+                        <th className="w-[125px] border-r border-slate-200 px-2.5 py-2 text-right">
                           Grand Total
                         </th>
 
-                        <th className="px-6 py-4 text-center text-sm font-semibold text-slate-600">
-                          View
+                        <th className="w-[75px] px-2 py-2 text-center">
+                          Action
                         </th>
                       </tr>
                     </thead>
 
                     <tbody>
-                      {filteredPurchases.map((purchase) => {
-                        const date = purchase.purchaseDate
-                          ? new Date(purchase.purchaseDate).toLocaleDateString(
-                              "en-IN",
-                              {
-                                day: "2-digit",
-                                month: "short",
-                                year: "numeric",
-                              },
-                            )
-                          : "N/A";
+                      {filteredPurchases.map((purchase, index) => (
+                        <tr
+                          key={purchase._id}
+                          className={`h-9 border-b border-slate-200 transition last:border-b-0 hover:bg-blue-50/50 ${
+                            index % 2 === 1 ? "bg-slate-50/40" : "bg-white"
+                          }`}
+                        >
+                          <td className="whitespace-nowrap border-r border-slate-100 px-2.5 py-1.5 text-slate-700">
+                            {formatDate(purchase.purchaseDate)}
+                          </td>
 
-                        return (
-                          <tr
-                            key={purchase._id}
-                            className="border-b border-slate-100 transition hover:bg-slate-50 last:border-b-0"
-                          >
-                            <td className="whitespace-nowrap px-6 py-5 text-slate-700">
-                              {date}
-                            </td>
+                          <td className="border-r border-slate-100 px-2.5 py-1.5">
+                            <span className="font-medium text-slate-900">
+                              {purchase.buyerName || "—"}
+                            </span>
+                          </td>
 
-                            <td className="px-6 py-5">
-                              <span className="font-semibold text-slate-900">
-                                {purchase.buyerName}
-                              </span>
-                            </td>
+                          <td className="whitespace-nowrap border-r border-slate-100 px-2.5 py-1.5 font-mono text-[10px] text-slate-600">
+                            {purchase.purchaseNumber || "—"}
+                          </td>
 
-                            <td className="whitespace-nowrap px-6 py-5 text-sm text-slate-600">
-                              {purchase.purchaseNumber}
-                            </td>
+                          <td className="border-r border-slate-100 px-2.5 py-1.5 text-right tabular-nums text-slate-700">
+                            {purchase.items?.length || 0}
+                          </td>
 
-                            <td className="px-6 py-5 text-right text-slate-700">
-                              {purchase.items?.length || 0}
-                            </td>
+                          <td className="border-r border-slate-100 px-2.5 py-1.5 text-right tabular-nums text-slate-700">
+                            ₹{Number(purchase.itemsTotal || 0).toFixed(2)}
+                          </td>
 
-                            <td className="px-6 py-5 text-right text-slate-700">
-                              ₹{Number(purchase.itemsTotal || 0).toFixed(2)}
-                            </td>
+                          <td className="border-r border-slate-100 px-2.5 py-1.5 text-right tabular-nums text-slate-600">
+                            ₹{Number(purchase.carriage || 0).toFixed(2)}
+                          </td>
 
-                            <td className="px-6 py-5 text-right text-slate-700">
-                              ₹{Number(purchase.carriage || 0).toFixed(2)}
-                            </td>
+                          <td className="border-r border-slate-100 px-2.5 py-1.5 text-right font-semibold tabular-nums text-slate-900">
+                            ₹{Number(purchase.grandTotal || 0).toFixed(2)}
+                          </td>
 
-                            <td className="px-6 py-5 text-right font-bold text-slate-900">
-                              ₹{Number(purchase.grandTotal || 0).toFixed(2)}
-                            </td>
-
-                            <td className="px-6 py-5 text-center">
-                              <button
-                                type="button"
-                                onClick={() => handleViewPurchase(purchase)}
-                                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                              >
-                                Details
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                          <td className="px-1.5 py-1 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleViewPurchase(purchase)}
+                              className="inline-flex h-6 items-center rounded border border-slate-300 bg-white px-2 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-100"
+                            >
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
+                </div>
+
+                <div className="flex h-7 items-center justify-between border-t border-slate-200 bg-slate-50 px-2.5 text-[10px] text-slate-500">
+                  <span>
+                    Showing{" "}
+                    <span className="font-semibold text-slate-700">
+                      {filteredPurchases.length}
+                    </span>{" "}
+                    record
+                    {filteredPurchases.length === 1 ? "" : "s"}
+                  </span>
+
+                  <span>Purchase History</span>
                 </div>
               </div>
             )}
           </section>
         )}
 
-        {/* =================================================
-            SECTION 2
+        {/* =====================================================
             BY BUYER
-        ================================================= */}
+        ===================================================== */}
 
         {activeTab === "buyer" && (
           <section>
             {!selectedBuyer && (
-              <>
-                <PurchaseDateFilter
-                  from={buyerFrom}
-                  to={buyerTo}
-                  onFromChange={setBuyerFrom}
-                  onToChange={setBuyerTo}
-                  onApply={applyBuyerFilter}
-                  onClear={clearBuyerFilter}
-                  loading={loading}
-                />
-
-                <BuyerPurchaseSummary
-                  buyers={buyerSummaries}
-                  onSelect={handleBuyerSelect}
-                  selectedBuyerId={selectedBuyer?._id}
-                />
-              </>
+              <BuyerPurchaseSummary
+                buyers={buyerSummaries}
+                onSelect={handleBuyerSelect}
+                selectedBuyerId={selectedBuyer?._id}
+              />
             )}
 
             {selectedBuyer && (
@@ -540,31 +542,18 @@ function PurchaseHistory() {
           </section>
         )}
 
-        {/* =================================================
-            SECTION 3
+        {/* =====================================================
             BY ITEM
-        ================================================= */}
+        ===================================================== */}
 
         {activeTab === "item" && (
           <section>
             {!selectedItem && (
-              <>
-                <PurchaseDateFilter
-                  from={itemFrom}
-                  to={itemTo}
-                  onFromChange={setItemFrom}
-                  onToChange={setItemTo}
-                  onApply={applyItemFilter}
-                  onClear={clearItemFilter}
-                  loading={loading}
-                />
-
-                <ItemPurchaseSummary
-                  items={itemSummaries}
-                  onSelect={handleItemSelect}
-                  selectedItemId={selectedItem?._id}
-                />
-              </>
+              <ItemPurchaseSummary
+                items={itemSummaries}
+                onSelect={handleItemSelect}
+                selectedItemId={selectedItem?._id}
+              />
             )}
 
             {selectedItem && (
@@ -580,10 +569,7 @@ function PurchaseHistory() {
         )}
       </div>
 
-      {/* =================================================
-          PURCHASE DETAILS MODAL
-      ================================================= */}
-
+      {/* Purchase Details Modal */}
       <PurchaseDetails
         purchase={selectedPurchase}
         onClose={closePurchaseDetails}

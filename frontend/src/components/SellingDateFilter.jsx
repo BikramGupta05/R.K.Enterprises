@@ -7,17 +7,19 @@ function SellingDateFilter({
   onClear,
   loading = false,
 }) {
+  const hasFilter = Boolean(from || to);
+
   return (
-    <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto_auto] md:items-end">
+    <div className="flex w-full justify-end">
+      <div className="flex items-center gap-2">
         {/* From */}
 
-        <div>
+        <div className="flex items-center gap-1.5">
           <label
             htmlFor="selling-from-date"
-            className="mb-2 block text-sm font-medium text-slate-700"
+            className="text-[10px] font-bold uppercase text-slate-500"
           >
-            From Date
+            From
           </label>
 
           <input
@@ -25,18 +27,18 @@ function SellingDateFilter({
             type="date"
             value={from}
             onChange={(event) => onFromChange(event.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-slate-700 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+            className="h-8 w-[145px] rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
           />
         </div>
 
         {/* To */}
 
-        <div>
+        <div className="flex items-center gap-1.5">
           <label
             htmlFor="selling-to-date"
-            className="mb-2 block text-sm font-medium text-slate-700"
+            className="text-[10px] font-bold uppercase text-slate-500"
           >
-            To Date
+            To
           </label>
 
           <input
@@ -44,7 +46,7 @@ function SellingDateFilter({
             type="date"
             value={to}
             onChange={(event) => onToChange(event.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-slate-700 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+            className="h-8 w-[145px] rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
           />
         </div>
 
@@ -54,9 +56,9 @@ function SellingDateFilter({
           type="button"
           onClick={onApply}
           disabled={loading}
-          className="rounded-lg bg-slate-900 px-5 py-2.5 font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-8 rounded-md bg-slate-900 px-4 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {loading ? "Loading..." : "Apply"}
+          {loading ? "..." : "Apply"}
         </button>
 
         {/* Clear */}
@@ -64,8 +66,8 @@ function SellingDateFilter({
         <button
           type="button"
           onClick={onClear}
-          disabled={loading}
-          className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={loading || !hasFilter}
+          className="h-8 rounded-md border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Clear
         </button>
