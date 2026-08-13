@@ -818,7 +818,7 @@ function KhatabookSeller() {
         <div className="mx-auto max-w-[1000px]">
           <button
             type="button"
-            onClick={() => navigate("/khatabook")}
+            onClick={() => navigate("/dashboard/khatabook")}
             className="mb-2 h-7 rounded border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100"
           >
             ← Back
@@ -873,7 +873,7 @@ function KhatabookSeller() {
           <div className="flex min-w-0 items-center gap-2">
             <button
               type="button"
-              onClick={() => navigate("/khatabook")}
+              onClick={() => navigate("/dashboard/khatabook")}
               className="h-7 shrink-0 rounded border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
             >
               ← Back

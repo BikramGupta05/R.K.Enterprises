@@ -305,21 +305,16 @@ function SellingHistory() {
     <div className="min-h-screen bg-slate-50 p-2">
       <div className="mx-auto w-full max-w-[1400px]">
         {/* =====================================================
-            TOP BAR
+            TOP ACTION BAR
+
+            The old Back button has been removed.
+            Dashboard sidebar is now the navigation.
         ===================================================== */}
 
-        <div className="mb-1 flex h-9 items-center justify-between border border-slate-300 bg-white px-2">
+        <div className="mb-1 flex h-9 items-center justify-end border border-slate-300 bg-white px-2">
           <button
             type="button"
-            onClick={() => navigate("/dashboard")}
-            className="h-7 rounded border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100"
-          >
-            ← Back
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate("/selling")}
+            onClick={() => navigate("/dashboard/selling")}
             className="h-7 rounded bg-slate-900 px-3 text-[11px] font-semibold text-white transition hover:bg-slate-800"
           >
             + New Sale

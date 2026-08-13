@@ -1,12 +1,9 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 import BuyerForm from "../components/BuyerForm";
 import useBuyers from "../hooks/useBuyers";
 
 function Buyers() {
-  const navigate = useNavigate();
-
   const { buyers, loading, saving, error, addBuyer, editBuyer, removeBuyer } =
     useBuyers();
 
@@ -104,46 +101,34 @@ function Buyers() {
     );
 
   return (
-    <div className="min-h-screen bg-slate-50 px-2 py-2 sm:px-3">
+    <div className="min-h-screen bg-slate-50 px-3 py-4 sm:px-5 lg:px-6">
       <div className="mx-auto w-full max-w-[1500px]">
         {/* =====================================================
-            TOP BAR
+            PAGE HEADER
         ===================================================== */}
 
-        <div className="mb-2 flex h-8 items-center justify-between">
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard")}
-            className="inline-flex h-8 items-center rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
-          >
-            ← Back
-          </button>
-
-          <button
-            type="button"
-            onClick={openCreateModal}
-            className="inline-flex h-8 items-center rounded-md bg-slate-900 px-3.5 text-xs font-semibold text-white transition hover:bg-slate-800"
-          >
-            + Add Buyer
-          </button>
-        </div>
-
-        {/* =====================================================
-            TITLE BAR
-        ===================================================== */}
-
-        <div className="mb-2 flex items-end justify-between">
+        <div className="mb-4 flex items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">
               Buyers
             </h1>
 
-            <p className="mt-0.5 text-xs text-slate-500">Manage your buyers</p>
+            <p className="mt-1 text-xs text-slate-500">Manage your buyers</p>
           </div>
 
-          <div className="text-xs font-medium text-slate-500">
-            {filteredBuyers.length}{" "}
-            {filteredBuyers.length === 1 ? "buyer" : "buyers"}
+          <div className="flex items-center gap-3">
+            <div className="text-xs font-medium text-slate-500">
+              {filteredBuyers.length}{" "}
+              {filteredBuyers.length === 1 ? "buyer" : "buyers"}
+            </div>
+
+            <button
+              type="button"
+              onClick={openCreateModal}
+              className="inline-flex h-8 items-center rounded-md bg-slate-900 px-3.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+            >
+              + Add Buyer
+            </button>
           </div>
         </div>
 
@@ -151,7 +136,7 @@ function Buyers() {
             SEARCH
         ===================================================== */}
 
-        <div className="mb-2 flex gap-2">
+        <div className="mb-3 flex gap-2">
           <div className="relative flex-1">
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
               🔍
@@ -162,7 +147,7 @@ function Buyers() {
               placeholder="Search shop, city or phone..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              className="h-8 w-full rounded-md border border-slate-300 bg-white pl-8 pr-3 text-xs text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
+              className="h-9 w-full rounded-md border border-slate-300 bg-white pl-8 pr-3 text-xs text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
             />
           </div>
 
@@ -170,7 +155,7 @@ function Buyers() {
             <button
               type="button"
               onClick={() => setSearch("")}
-              className="h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-600 transition hover:bg-slate-100"
+              className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-600 transition hover:bg-slate-100"
             >
               Clear
             </button>
@@ -182,7 +167,7 @@ function Buyers() {
         ===================================================== */}
 
         {error && (
-          <div className="mb-2 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
             <span>{error}</span>
 
             <button
@@ -201,13 +186,13 @@ function Buyers() {
 
         {loading ? (
           <div className="overflow-hidden rounded-lg border border-slate-300 bg-white">
-            <div className="flex h-10 items-center justify-center text-xs text-slate-500">
+            <div className="flex h-12 items-center justify-center text-xs text-slate-500">
               Loading buyers...
             </div>
           </div>
         ) : filteredBuyers.length === 0 ? (
           <div className="overflow-hidden rounded-lg border border-slate-300 bg-white">
-            <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
+            <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
               <h2 className="text-sm font-semibold text-slate-700">
                 {search ? "No buyers found" : "No buyers yet"}
               </h2>
@@ -231,7 +216,7 @@ function Buyers() {
           </div>
         ) : (
           /* ===================================================
-             EXCEL STYLE TABLE
+             BUYER TABLE
           =================================================== */
 
           <div className="overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
@@ -331,7 +316,7 @@ function Buyers() {
             </div>
 
             {/* =================================================
-                FOOTER
+                TABLE FOOTER
             ================================================= */}
 
             <div className="flex h-7 items-center justify-between border-t border-slate-200 bg-slate-50 px-3 text-[10px] text-slate-500">

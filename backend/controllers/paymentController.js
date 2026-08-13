@@ -194,11 +194,9 @@ const getSellerAccount = async ({ userId, sellerId, session = null }) => {
      FETCH BOTH
   ======================================================= */
 
-  const [sales, khatabookPaymentsList] = await Promise.all([
-    saleQuery.lean(),
+  const sales = await saleQuery.lean();
 
-    paymentQuery.lean(),
-  ]);
+  const khatabookPaymentsList = await paymentQuery.lean();
 
   /* =======================================================
      TOTAL SALES

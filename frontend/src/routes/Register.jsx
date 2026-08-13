@@ -1,27 +1,30 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import AuthLayout from '../components/AuthLayout.jsx';
-import { useAuth } from '../contexts/AuthContext.jsx';
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import AuthLayout from "../components/AuthLayout.jsx";
+import { useAuth } from "../contexts/AuthContext.jsx";
 
 function Register() {
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const { register } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    setError('');
+    setError("");
     setLoading(true);
 
     try {
       await register({ name, email, password });
-      navigate('/profile');
+      navigate("/dashboard/profile");
     } catch (err) {
-      setError(err.response?.data?.message || 'Registration failed. Double-check your input.');
+      setError(
+        err.response?.data?.message ||
+          "Registration failed. Double-check your input.",
+      );
     } finally {
       setLoading(false);
     }
@@ -32,8 +35,11 @@ function Register() {
       title="Create your account"
       secondaryAction={
         <>
-          <span>Already have an account?</span>{' '}
-          <Link className="font-semibold text-slate-900 hover:text-slate-700" to="/login">
+          <span>Already have an account?</span>{" "}
+          <Link
+            className="font-semibold text-slate-900 hover:text-slate-700"
+            to="/login"
+          >
             Sign in
           </Link>
         </>
@@ -41,7 +47,10 @@ function Register() {
     >
       <form className="space-y-5" onSubmit={handleSubmit}>
         <div>
-          <label className="block text-sm font-medium text-slate-700" htmlFor="name">
+          <label
+            className="block text-sm font-medium text-slate-700"
+            htmlFor="name"
+          >
             Full name
           </label>
           <input
@@ -54,7 +63,10 @@ function Register() {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700" htmlFor="email">
+          <label
+            className="block text-sm font-medium text-slate-700"
+            htmlFor="email"
+          >
             Email address
           </label>
           <input
@@ -67,7 +79,10 @@ function Register() {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700" htmlFor="password">
+          <label
+            className="block text-sm font-medium text-slate-700"
+            htmlFor="password"
+          >
             Password
           </label>
           <input
@@ -79,13 +94,17 @@ function Register() {
             className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
           />
         </div>
-        {error && <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+        {error && (
+          <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {error}
+          </div>
+        )}
         <button
           type="submit"
           disabled={loading}
           className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {loading ? 'Creating account...' : 'Create account'}
+          {loading ? "Creating account..." : "Create account"}
         </button>
       </form>
     </AuthLayout>

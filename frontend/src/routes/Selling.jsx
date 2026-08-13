@@ -527,7 +527,10 @@ function Selling() {
     const result = await addSale(saleData);
 
     if (result.success) {
-      navigate("/selling-history");
+      /*
+       * Updated route for the new dashboard shell.
+       */
+      navigate("/dashboard/selling-history");
 
       return;
     }
@@ -543,27 +546,17 @@ function Selling() {
     <div className="min-h-screen bg-slate-50 px-2 py-2 sm:px-3">
       <div className="mx-auto w-full max-w-[1500px]">
         {/* =================================================
-            TOP BAR
+            PAGE HEADER
         ================================================= */}
 
-        <div className="mb-2 flex h-8 items-center justify-between">
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard")}
-            className="inline-flex h-8 items-center rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
-          >
-            ← Back
-          </button>
+        <div className="mb-3">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            Selling
+          </h1>
 
-          <div className="text-right">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-              Selling
-            </h1>
-
-            <p className="hidden text-xs text-slate-500 sm:block">
-              Record items sold from your stock
-            </p>
-          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            Record items sold from your stock
+          </p>
         </div>
 
         {/* =================================================

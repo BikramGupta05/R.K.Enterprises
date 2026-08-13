@@ -297,7 +297,7 @@ function Purchase() {
     const success = await addPurchase(purchaseData);
 
     if (success) {
-      navigate("/purchase-history");
+      navigate("/dashboard/purchase-history");
     }
   };
 
@@ -320,25 +320,27 @@ function Purchase() {
   const canAddMoreItems = !itemsLoading && selectedItemIds.size < items.length;
 
   return (
-    <div className="min-h-screen bg-slate-100 px-4 py-6 sm:px-6">
-      <div className="mx-auto w-full max-w-7xl">
+    <div className="min-h-screen bg-slate-50 px-3 py-4 sm:px-5 lg:px-6">
+      <div className="mx-auto w-full max-w-[1500px]">
         {/* ===================================================
             HEADER
         =================================================== */}
 
-        <div className="mb-6 flex items-center justify-between gap-4">
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard")}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-          >
-            ← Back
-          </button>
+        <div className="mb-5 flex items-end justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              New Purchase
+            </h1>
+
+            <p className="mt-1 text-xs text-slate-500">
+              Create a new purchase from one of your buyers.
+            </p>
+          </div>
 
           <div className="text-right">
-            <p className="text-xs text-slate-500">Purchase Date</p>
+            <p className="text-[11px] text-slate-500">Purchase Date</p>
 
-            <p className="text-base font-semibold text-slate-900">
+            <p className="text-sm font-semibold text-slate-900">
               {purchaseDate
                 ? new Date(`${purchaseDate}T00:00:00`).toLocaleDateString(
                     "en-IN",
@@ -354,33 +356,21 @@ function Purchase() {
         </div>
 
         {/* ===================================================
-            TITLE
-        =================================================== */}
-
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-slate-900">New Purchase</h1>
-
-          <p className="mt-1 text-sm text-slate-500">
-            Create a new purchase from one of your buyers.
-          </p>
-        </div>
-
-        {/* ===================================================
             MAIN FORM
         =================================================== */}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-4">
           {/* =================================================
               BUYER
           ================================================= */}
 
           <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-4 py-3">
-              <h2 className="text-base font-semibold text-slate-900">Buyer</h2>
+              <h2 className="text-sm font-semibold text-slate-900">Buyer</h2>
             </div>
 
             <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center">
-              <label className="w-28 shrink-0 text-sm font-medium text-slate-600">
+              <label className="w-28 shrink-0 text-xs font-medium text-slate-600">
                 Shop Name
               </label>
 
@@ -388,7 +378,7 @@ function Purchase() {
                 value={buyerId}
                 onChange={(event) => setBuyerId(event.target.value)}
                 disabled={buyersLoading}
-                className="h-9 w-full max-w-xl rounded-md border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200 disabled:bg-slate-100"
+                className="h-9 w-full max-w-xl rounded-md border border-slate-300 bg-white px-3 text-xs outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200 disabled:bg-slate-100"
               >
                 <option value="">
                   {buyersLoading ? "Loading buyers..." : "Select Buyer"}
@@ -404,14 +394,14 @@ function Purchase() {
 
             {buyers.length === 0 && !buyersLoading && (
               <div className="border-t border-slate-100 px-4 py-3">
-                <p className="text-sm text-slate-500">
+                <p className="text-xs text-slate-500">
                   You don't have any buyers yet.
                 </p>
 
                 <button
                   type="button"
-                  onClick={() => navigate("/buyers")}
-                  className="mt-1 text-sm font-semibold text-blue-600 hover:text-blue-700"
+                  onClick={() => navigate("/dashboard/buyers")}
+                  className="mt-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
                 >
                   Add a buyer first →
                 </button>
@@ -428,11 +418,9 @@ function Purchase() {
 
             <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-4 py-3">
               <div>
-                <h2 className="text-base font-semibold text-slate-900">
-                  Items
-                </h2>
+                <h2 className="text-sm font-semibold text-slate-900">Items</h2>
 
-                <p className="mt-0.5 text-xs text-slate-500">
+                <p className="mt-0.5 text-[11px] text-slate-500">
                   Each item can only be added once.
                 </p>
               </div>
@@ -441,26 +429,26 @@ function Purchase() {
                 type="button"
                 onClick={handleAddItem}
                 disabled={itemsLoading || !canAddMoreItems}
-                className="rounded-md bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-md bg-slate-900 px-3 py-2 text-[11px] font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 + Add More Items
               </button>
             </div>
 
             {itemsLoading ? (
-              <div className="p-8 text-center text-sm text-slate-500">
+              <div className="p-8 text-center text-xs text-slate-500">
                 Loading items...
               </div>
             ) : items.length === 0 ? (
               <div className="p-8 text-center">
-                <p className="text-sm text-slate-600">
+                <p className="text-xs text-slate-600">
                   You don't have any items yet.
                 </p>
 
                 <button
                   type="button"
-                  onClick={() => navigate("/items")}
-                  className="mt-2 text-sm font-semibold text-blue-600 hover:text-blue-700"
+                  onClick={() => navigate("/dashboard/items")}
+                  className="mt-2 text-xs font-semibold text-blue-600 hover:text-blue-700"
                 >
                   Add an item first →
                 </button>
@@ -472,7 +460,7 @@ function Purchase() {
                       TABLE HEADER
                   ----------------------------------------- */}
 
-                  <div className="grid grid-cols-[minmax(240px,2.5fr)_110px_110px_130px_130px_76px] items-center border-b border-slate-300 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <div className="grid grid-cols-[minmax(240px,2.5fr)_110px_110px_130px_130px_76px] items-center border-b border-slate-300 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                     <div className="pr-2">Item</div>
 
                     <div className="px-1">Quantity</div>
@@ -510,7 +498,7 @@ function Purchase() {
           </div>
 
           {/* =================================================
-              COMPACT PURCHASE SUMMARY
+              PURCHASE SUMMARY
           ================================================= */}
 
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -520,11 +508,11 @@ function Purchase() {
               ----------------------------------------- */}
 
               <div className="flex min-h-[68px] items-center justify-between gap-4 px-4 py-3">
-                <span className="text-sm font-medium text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Items Total
                 </span>
 
-                <span className="text-base font-semibold text-slate-900">
+                <span className="text-sm font-semibold text-slate-900">
                   ₹{itemsTotal.toFixed(2)}
                 </span>
               </div>
@@ -536,7 +524,7 @@ function Purchase() {
               <div className="flex min-h-[68px] items-center justify-between gap-4 px-4 py-3">
                 <label
                   htmlFor="carriage"
-                  className="text-sm font-medium text-slate-600"
+                  className="text-xs font-medium text-slate-600"
                 >
                   Carriage / Fare
                 </label>
@@ -549,7 +537,6 @@ function Purchase() {
                   onChange={(event) => {
                     const value = event.target.value;
 
-                    // Allow only numbers with maximum 2 decimal places
                     if (!/^\d*(\.\d{0,2})?$/.test(value)) {
                       return;
                     }
@@ -557,12 +544,12 @@ function Purchase() {
                     setCarriage(value);
                   }}
                   onWheel={(event) => {
-                    // Prevent mouse wheel from changing the value
                     event.preventDefault();
+
                     event.currentTarget.blur();
                   }}
                   placeholder="0.00"
-                  className="h-9 w-28 rounded-md border border-slate-300 bg-white px-2.5 text-right text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
+                  className="h-9 w-28 rounded-md border border-slate-300 bg-white px-2.5 text-right text-xs text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
                 />
               </div>
 
@@ -571,11 +558,11 @@ function Purchase() {
               ----------------------------------------- */}
 
               <div className="flex min-h-[68px] items-center justify-between gap-4 bg-slate-50 px-4 py-3">
-                <span className="text-sm font-semibold text-slate-900">
+                <span className="text-xs font-semibold text-slate-900">
                   Grand Total
                 </span>
 
-                <span className="text-lg font-bold text-slate-900">
+                <span className="text-base font-bold text-slate-900">
                   ₹{grandTotal.toFixed(2)}
                 </span>
               </div>
@@ -593,7 +580,7 @@ function Purchase() {
                     buyers.length === 0 ||
                     items.length === 0
                   }
-                  className="h-9 w-full rounded-md bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="h-9 w-full rounded-md bg-slate-900 px-4 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {saving ? "Saving..." : "Save Purchase"}
                 </button>
@@ -606,7 +593,7 @@ function Purchase() {
           ================================================= */}
 
           {combinedError && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
               {combinedError}
             </div>
           )}

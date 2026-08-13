@@ -51,18 +51,20 @@ function PurchaseHistory() {
   const [itemFrom, setItemFrom] = useState("");
   const [itemTo, setItemTo] = useState("");
 
-  /*
-   * Initial load
-   */
+  /* =========================================================
+     INITIAL LOAD
+  ========================================================= */
+
   useEffect(() => {
     loadPurchases();
     loadBuyerSummaries();
     loadItemSummaries();
   }, [loadPurchases, loadBuyerSummaries, loadItemSummaries]);
 
-  /*
-   * Change active tab
-   */
+  /* =========================================================
+     CHANGE ACTIVE TAB
+  ========================================================= */
+
   const handleTabChange = async (tab) => {
     setActiveTab(tab);
     setSearch("");
@@ -99,9 +101,10 @@ function PurchaseHistory() {
     }
   };
 
-  /*
-   * All purchases filter
-   */
+  /* =========================================================
+     ALL PURCHASES FILTER
+  ========================================================= */
+
   const applyAllFilter = async () => {
     setSelectedPurchase(null);
 
@@ -120,9 +123,10 @@ function PurchaseHistory() {
     await loadPurchases();
   };
 
-  /*
-   * Buyer filter
-   */
+  /* =========================================================
+     BUYER FILTER
+  ========================================================= */
+
   const applyBuyerFilter = async () => {
     clearBuyerHistory();
 
@@ -141,9 +145,10 @@ function PurchaseHistory() {
     await loadBuyerSummaries();
   };
 
-  /*
-   * Item filter
-   */
+  /* =========================================================
+     ITEM FILTER
+  ========================================================= */
+
   const applyItemFilter = async () => {
     clearItemHistory();
 
@@ -162,9 +167,10 @@ function PurchaseHistory() {
     await loadItemSummaries();
   };
 
-  /*
-   * Select buyer
-   */
+  /* =========================================================
+     SELECT BUYER
+  ========================================================= */
+
   const handleBuyerSelect = async (buyer) => {
     setSelectedPurchase(null);
 
@@ -174,9 +180,10 @@ function PurchaseHistory() {
     });
   };
 
-  /*
-   * Select item
-   */
+  /* =========================================================
+     SELECT ITEM
+  ========================================================= */
+
   const handleItemSelect = async (item) => {
     setSelectedPurchase(null);
 
@@ -186,9 +193,10 @@ function PurchaseHistory() {
     });
   };
 
-  /*
-   * Search purchases
-   */
+  /* =========================================================
+     SEARCH PURCHASES
+  ========================================================= */
+
   const filteredPurchases = purchases.filter((purchase) => {
     const value = search.trim().toLowerCase();
 
@@ -202,23 +210,26 @@ function PurchaseHistory() {
     );
   });
 
-  /*
-   * View purchase
-   */
+  /* =========================================================
+     VIEW PURCHASE
+  ========================================================= */
+
   const handleViewPurchase = (purchase) => {
     setSelectedPurchase(purchase);
   };
 
-  /*
-   * Close purchase details
-   */
+  /* =========================================================
+     CLOSE PURCHASE DETAILS
+  ========================================================= */
+
   const closePurchaseDetails = () => {
     setSelectedPurchase(null);
   };
 
-  /*
-   * Format date
-   */
+  /* =========================================================
+     FORMAT DATE
+  ========================================================= */
+
   const formatDate = (dateValue) => {
     if (!dateValue) {
       return "—";
@@ -237,9 +248,10 @@ function PurchaseHistory() {
     });
   };
 
-  /*
-   * Render active date filter
-   */
+  /* =========================================================
+     ACTIVE DATE FILTER
+  ========================================================= */
+
   const renderActiveDateFilter = () => {
     if (activeTab === "all") {
       return (
@@ -289,26 +301,24 @@ function PurchaseHistory() {
   return (
     <div className="min-h-screen bg-slate-50 px-2 py-2 sm:px-3">
       <div className="mx-auto w-full max-w-[1500px]">
-        {/* Top Bar */}
-        <div className="mb-2 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard")}
-            className="inline-flex h-8 items-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-          >
-            ← Back
-          </button>
+        {/* ===================================================
+            TOP ACTION
+        =================================================== */}
 
+        <div className="mb-2 flex justify-end">
           <button
             type="button"
-            onClick={() => navigate("/purchase")}
+            onClick={() => navigate("/dashboard/purchase")}
             className="inline-flex h-8 items-center rounded-md bg-slate-900 px-3.5 text-sm font-semibold text-white transition hover:bg-slate-800"
           >
             + New Purchase
           </button>
         </div>
 
-        {/* Title */}
+        {/* ===================================================
+            TITLE
+        =================================================== */}
+
         <div className="mb-2 flex items-end justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">
@@ -328,13 +338,13 @@ function PurchaseHistory() {
           )}
         </div>
 
-        {/* =====================================================
+        {/* ===================================================
             TABS + DATE FILTER
-            LEFT AND RIGHT CORNERS
-        ===================================================== */}
+        =================================================== */}
 
         <div className="mb-2 flex w-full items-start justify-between gap-8 rounded-lg border border-slate-200 bg-white p-1.5 shadow-sm">
           {/* LEFT: Tabs */}
+
           <div className="shrink-0">
             <PurchaseHistoryTabs
               activeTab={activeTab}
@@ -343,10 +353,14 @@ function PurchaseHistory() {
           </div>
 
           {/* RIGHT: Date Filter */}
+
           <div className="shrink-0">{renderActiveDateFilter()}</div>
         </div>
 
-        {/* Error */}
+        {/* ===================================================
+            ERROR
+        =================================================== */}
+
         {error && (
           <div className="mb-2 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
             <span>{error}</span>
@@ -361,13 +375,14 @@ function PurchaseHistory() {
           </div>
         )}
 
-        {/* =====================================================
+        {/* ===================================================
             ALL PURCHASES
-        ===================================================== */}
+        =================================================== */}
 
         {activeTab === "all" && (
           <section>
             {/* Search */}
+
             <div className="mb-2 flex gap-2">
               <div className="relative flex-1">
                 <input
@@ -391,6 +406,7 @@ function PurchaseHistory() {
             </div>
 
             {/* Loading */}
+
             {loading ? (
               <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-xs text-slate-500">
                 Loading purchase history...
@@ -515,9 +531,9 @@ function PurchaseHistory() {
           </section>
         )}
 
-        {/* =====================================================
+        {/* ===================================================
             BY BUYER
-        ===================================================== */}
+        =================================================== */}
 
         {activeTab === "buyer" && (
           <section>
@@ -542,9 +558,9 @@ function PurchaseHistory() {
           </section>
         )}
 
-        {/* =====================================================
+        {/* ===================================================
             BY ITEM
-        ===================================================== */}
+        =================================================== */}
 
         {activeTab === "item" && (
           <section>
@@ -569,7 +585,10 @@ function PurchaseHistory() {
         )}
       </div>
 
-      {/* Purchase Details Modal */}
+      {/* =====================================================
+          PURCHASE DETAILS MODAL
+      ===================================================== */}
+
       <PurchaseDetails
         purchase={selectedPurchase}
         onClose={closePurchaseDetails}

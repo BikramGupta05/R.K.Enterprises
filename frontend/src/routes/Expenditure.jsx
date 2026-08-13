@@ -1,11 +1,8 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 import useExpenditures from "../hooks/useExpenditures";
 
 function Expenditure() {
-  const navigate = useNavigate();
-
   const {
     expenditures,
     summary,
@@ -475,15 +472,7 @@ function Expenditure() {
         ================================================= */}
 
         <div className="mb-2 flex h-9 items-center justify-between">
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard")}
-            className="inline-flex h-8 items-center rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
-          >
-            ← Back
-          </button>
-
-          <div className="text-center">
+          <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900">
               Expenditure
             </h1>

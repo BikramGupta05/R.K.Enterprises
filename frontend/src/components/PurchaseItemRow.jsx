@@ -1,150 +1,127 @@
-import { useEffect, useState } from "react";
+import React from "react";
 
-function PurchaseItemRow({ row, index, items, onChange, onRemove, canRemove }) {
-  const [itemId, setItemId] = useState(row.itemId || "");
-  const [quantity, setQuantity] = useState(row.quantity ?? "");
-  const [pieces, setPieces] = useState(row.pieces ?? "");
-  const [price, setPrice] = useState(row.price ?? "");
-
-  useEffect(() => {
-    setItemId(row.itemId || "");
-    setQuantity(row.quantity ?? "");
-    setPieces(row.pieces ?? "");
-    setPrice(row.price ?? "");
-  }, [row]);
-
+function PurchaseItemRow({
+  row,
+  index,
+  items,
+  selectedItemIds,
+  onChange,
+  onRemove,
+  canRemove,
+}) {
   /* =========================================================
-     Calculate Total
+     Available Items
+
+     An item already selected in another row must not appear
+     in this row's dropdown.
+
+     Important:
+     The item currently selected in THIS row is kept visible.
   ========================================================= */
 
-  const calculateTotal = () => {
-    const quantityValue = Number(quantity) || 0;
-    const priceValue = Number(price) || 0;
+  const availableItems = items.filter((item) => {
+    const itemId = String(item._id);
 
-    return quantityValue * priceValue;
-  };
+    const currentItemId = String(row.itemId || "");
 
-  /* =========================================================
-     Prevent Mouse Wheel Changes
-  ========================================================= */
-
-  const preventWheelChange = (event) => {
-    event.preventDefault();
-    event.currentTarget.blur();
-  };
-
-  /* =========================================================
-     Quantity
-     
-     Allowed:
-     1
-     8
-     8.5
-     8.55
-
-     Not allowed:
-     8.555
-     e
-     +
-     -
-     abc
-  ========================================================= */
-
-  const handleQuantityChange = (event) => {
-    const value = event.target.value;
-
-    if (!/^\d*(\.\d{0,2})?$/.test(value)) {
-      return;
+    /*
+     * Keep the current row's selected item visible.
+     */
+    if (itemId === currentItemId) {
+      return true;
     }
 
-    setQuantity(value);
-
-    onChange(index, {
-      itemId,
-      quantity: value,
-      pieces,
-      price,
-    });
-  };
+    /*
+     * Hide items selected in another row.
+     */
+    return !selectedItemIds.has(itemId);
+  });
 
   /* =========================================================
-     Pieces
-     
-     Whole numbers only.
+     Total
   ========================================================= */
 
-  const handlePiecesChange = (event) => {
-    const value = event.target.value;
+  const quantity = Number(row.quantity) || 0;
 
-    if (!/^\d*$/.test(value)) {
-      return;
-    }
+  const price = Number(row.price) || 0;
 
-    setPieces(value);
-
-    onChange(index, {
-      itemId,
-      quantity,
-      pieces: value,
-      price,
-    });
-  };
-
-  /* =========================================================
-     Price
-     
-     Maximum 2 decimal places.
-  ========================================================= */
-
-  const handlePriceChange = (event) => {
-    const value = event.target.value;
-
-    if (!/^\d*(\.\d{0,2})?$/.test(value)) {
-      return;
-    }
-
-    setPrice(value);
-
-    onChange(index, {
-      itemId,
-      quantity,
-      pieces,
-      price: value,
-    });
-  };
+  const total = quantity * price;
 
   /* =========================================================
      Item Change
   ========================================================= */
 
   const handleItemChange = (event) => {
-    const value = event.target.value;
+    const itemId = event.target.value;
 
-    setItemId(value);
+    /*
+     * Extra protection:
+     *
+     * Even if an item somehow becomes selected in another row,
+     * don't allow the duplicate selection.
+     */
+    if (
+      itemId &&
+      selectedItemIds.has(String(itemId)) &&
+      String(itemId) !== String(row.itemId || "")
+    ) {
+      return;
+    }
 
     onChange(index, {
-      itemId: value,
-      quantity,
-      pieces,
-      price,
+      ...row,
+      itemId,
+    });
+  };
+
+  /* =========================================================
+     Quantity Change
+  ========================================================= */
+
+  const handleQuantityChange = (event) => {
+    onChange(index, {
+      ...row,
+      quantity: event.target.value,
+    });
+  };
+
+  /* =========================================================
+     Pieces Change
+  ========================================================= */
+
+  const handlePiecesChange = (event) => {
+    onChange(index, {
+      ...row,
+      pieces: event.target.value,
+    });
+  };
+
+  /* =========================================================
+     Price Change
+  ========================================================= */
+
+  const handlePriceChange = (event) => {
+    onChange(index, {
+      ...row,
+      price: event.target.value,
     });
   };
 
   return (
-    <div className="grid grid-cols-[minmax(240px,2.5fr)_110px_110px_130px_130px_76px] items-center border-b border-slate-200 bg-white px-3 py-2 last:border-b-0">
+    <div className="grid grid-cols-[minmax(240px,2.5fr)_110px_110px_130px_130px_76px] items-center border-b border-slate-200 px-3 py-2 last:border-b-0">
       {/* =====================================================
           ITEM
       ===================================================== */}
 
       <div className="pr-2">
         <select
-          value={itemId}
+          value={row.itemId || ""}
           onChange={handleItemChange}
-          className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
+          className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
         >
           <option value="">Select Item</option>
 
-          {items.map((item) => (
+          {availableItems.map((item) => (
             <option key={item._id} value={item._id}>
               {item.title}
             </option>
@@ -158,13 +135,12 @@ function PurchaseItemRow({ row, index, items, onChange, onRemove, canRemove }) {
 
       <div className="px-1">
         <input
-          type="text"
-          inputMode="decimal"
-          value={quantity}
+          type="number"
+          min="0"
+          step="any"
+          value={row.quantity}
           onChange={handleQuantityChange}
-          onWheel={preventWheelChange}
-          placeholder="0.00"
-          className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
+          className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs text-slate-700 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
         />
       </div>
 
@@ -174,13 +150,12 @@ function PurchaseItemRow({ row, index, items, onChange, onRemove, canRemove }) {
 
       <div className="px-1">
         <input
-          type="text"
-          inputMode="numeric"
-          value={pieces}
+          type="number"
+          min="0"
+          step="1"
+          value={row.pieces}
           onChange={handlePiecesChange}
-          onWheel={preventWheelChange}
-          placeholder="0"
-          className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
+          className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs text-slate-700 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
         />
       </div>
 
@@ -190,13 +165,12 @@ function PurchaseItemRow({ row, index, items, onChange, onRemove, canRemove }) {
 
       <div className="px-1">
         <input
-          type="text"
-          inputMode="decimal"
-          value={price}
+          type="number"
+          min="0"
+          step="0.01"
+          value={row.price}
           onChange={handlePriceChange}
-          onWheel={preventWheelChange}
-          placeholder="0.00"
-          className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
+          className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs text-slate-700 outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-200"
         />
       </div>
 
@@ -205,8 +179,8 @@ function PurchaseItemRow({ row, index, items, onChange, onRemove, canRemove }) {
       ===================================================== */}
 
       <div className="px-1">
-        <div className="flex h-9 items-center justify-end rounded-md border border-slate-200 bg-slate-50 px-2.5 text-sm font-semibold text-slate-900">
-          ₹{calculateTotal().toFixed(2)}
+        <div className="flex h-9 items-center justify-end rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold tabular-nums text-slate-800">
+          ₹{total.toFixed(2)}
         </div>
       </div>
 
@@ -214,17 +188,15 @@ function PurchaseItemRow({ row, index, items, onChange, onRemove, canRemove }) {
           REMOVE
       ===================================================== */}
 
-      <div className="flex justify-center pl-1">
-        {canRemove && (
-          <button
-            type="button"
-            onClick={() => onRemove(index)}
-            className="h-9 rounded-md border border-red-200 bg-red-50 px-2.5 text-xs font-medium text-red-600 transition hover:bg-red-100"
-            title="Remove item"
-          >
-            Remove
-          </button>
-        )}
+      <div className="flex justify-center">
+        <button
+          type="button"
+          onClick={() => onRemove(index)}
+          disabled={!canRemove}
+          className="h-9 rounded-md border border-red-200 bg-white px-2.5 text-xs font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Remove
+        </button>
       </div>
     </div>
   );

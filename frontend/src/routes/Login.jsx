@@ -1,26 +1,28 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import AuthLayout from '../components/AuthLayout.jsx';
-import { useAuth } from '../contexts/AuthContext.jsx';
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import AuthLayout from "../components/AuthLayout.jsx";
+import { useAuth } from "../contexts/AuthContext.jsx";
 
 function Login() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    setError('');
+    setError("");
     setLoading(true);
 
     try {
       await login({ email, password });
-      navigate('/');
+      navigate("/dashboard");
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed. Check your credentials.');
+      setError(
+        err.response?.data?.message || "Login failed. Check your credentials.",
+      );
     } finally {
       setLoading(false);
     }
@@ -31,8 +33,11 @@ function Login() {
       title="Sign in to your account"
       secondaryAction={
         <>
-          <span>Don&apos;t have an account?</span>{' '}
-          <Link className="font-semibold text-slate-900 hover:text-slate-700" to="/register">
+          <span>Don&apos;t have an account?</span>{" "}
+          <Link
+            className="font-semibold text-slate-900 hover:text-slate-700"
+            to="/register"
+          >
             Register
           </Link>
         </>
@@ -40,7 +45,10 @@ function Login() {
     >
       <form className="space-y-5" onSubmit={handleSubmit}>
         <div>
-          <label className="block text-sm font-medium text-slate-700" htmlFor="email">
+          <label
+            className="block text-sm font-medium text-slate-700"
+            htmlFor="email"
+          >
             Email address
           </label>
           <input
@@ -53,7 +61,10 @@ function Login() {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700" htmlFor="password">
+          <label
+            className="block text-sm font-medium text-slate-700"
+            htmlFor="password"
+          >
             Password
           </label>
           <input
@@ -66,17 +77,24 @@ function Login() {
           />
         </div>
         <div className="flex items-center justify-between text-sm text-slate-600">
-          <Link className="font-medium text-slate-900 hover:text-slate-700" to="/forgot-password">
+          <Link
+            className="font-medium text-slate-900 hover:text-slate-700"
+            to="/forgot-password"
+          >
             Forgot password?
           </Link>
         </div>
-        {error && <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+        {error && (
+          <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {error}
+          </div>
+        )}
         <button
           type="submit"
           disabled={loading}
           className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {loading ? 'Signing in...' : 'Sign in'}
+          {loading ? "Signing in..." : "Sign in"}
         </button>
       </form>
       <div className="mt-6">
