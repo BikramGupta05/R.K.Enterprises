@@ -205,6 +205,8 @@ function KhatabookSeller() {
 
   const [toDate, setToDate] = useState("");
 
+  const [saleDateSort, setSaleDateSort] = useState("newest");
+
   /* =======================================================
      FIND SELLER
   ======================================================= */
@@ -579,167 +581,338 @@ function KhatabookSeller() {
     }
   };
 
+
   /* =======================================================
-     CHRONOLOGICAL LEDGER
+     DATE FILTER HELPER
   ======================================================= */
 
-  const chronologicalLedger = useMemo(() => {
-    const saleEntries = sellerSales.map((sale) => {
-      const saleAmount = Number(sale?.grandTotal) || 0;
+  const isDateInRange = useCallback((value, fromValue, toValue) => {
+    if (!value) {
+      return false;
+    }
 
-      const paidDuringSale = Number(sale?.paidAmount) || 0;
+    const transactionDate = new Date(value);
 
-      return {
-        id: `sale-${sale._id}`,
+    if (Number.isNaN(transactionDate.getTime())) {
+      return false;
+    }
 
-        type: "sale",
+    const startDate = createLocalDate(fromValue, false);
+    const endDate = createLocalDate(toValue, true);
 
-        date: getSaleDate(sale),
+    if (startDate && transactionDate < startDate) {
+      return false;
+    }
 
-        reference: sale?.saleNumber || sale?._id,
+    if (endDate && transactionDate > endDate) {
+      return false;
+    }
 
-        description: sale?.items?.length
-          ? `${sale.items.length} item${sale.items.length !== 1 ? "s" : ""}`
-          : "Sale",
+    return true;
+  }, []);
 
-        debit: Math.max(saleAmount, 0),
+  /* =======================================================
+     PAYMENT APPLICATION / FIFO ALLOCATION
 
-        credit: Math.min(Math.max(paidDuringSale, 0), Math.max(saleAmount, 0)),
+     Later Khatabook payments are always applied to the
+     oldest unpaid sale first.
 
-        raw: sale,
-      };
-    });
+     Example:
 
-    const paymentEntries = sellerPayments.map((payment) => {
-      const paymentAmount = Number(payment?.amount) || 0;
+     Sale 1 = ₹500, paid at sale ₹100, due ₹400
+     Sale 2 = ₹1,000, paid at sale ₹100, due ₹900
 
-      return {
-        id: `payment-${payment._id}`,
+     Later payment = ₹450
 
-        type: "payment",
+     Allocation:
+     Sale 1 -> ₹400 -> CLEARED
+     Sale 2 -> ₹50
+     Sale 2 remaining due -> ₹850
+  ======================================================= */
 
-        date: getPaymentDate(payment),
+  const allocationData = useMemo(() => {
+    const chronologicalSales = [...sellerSales].sort((a, b) => {
+      const dateA = new Date(getSaleDate(a) || 0).getTime();
+      const dateB = new Date(getSaleDate(b) || 0).getTime();
 
-        reference: payment?.paymentNumber || payment?._id,
-
-        description: payment?.note || "Payment received",
-
-        debit: 0,
-
-        credit: Math.max(paymentAmount, 0),
-
-        raw: payment,
-      };
-    });
-
-    return [...saleEntries, ...paymentEntries].sort((a, b) => {
-      const timeA = getEntryTimestamp(a);
-
-      const timeB = getEntryTimestamp(b);
-
-      if (timeA !== timeB) {
-        return timeA - timeB;
+      if (dateA !== dateB) {
+        return dateA - dateB;
       }
 
-      const createdA = getCreatedTimestamp(a);
-
-      const createdB = getCreatedTimestamp(b);
+      const createdA = new Date(a?.createdAt || 0).getTime();
+      const createdB = new Date(b?.createdAt || 0).getTime();
 
       if (createdA !== createdB) {
         return createdA - createdB;
       }
 
-      if (a.type === "sale" && b.type === "payment") {
-        return -1;
-      }
-
-      if (a.type === "payment" && b.type === "sale") {
-        return 1;
-      }
-
-      return String(a.id).localeCompare(String(b.id));
+      return String(a?._id || "").localeCompare(String(b?._id || ""));
     });
+
+    const chronologicalPayments = [...sellerPayments].sort((a, b) => {
+      const dateA = new Date(getPaymentDate(a) || 0).getTime();
+      const dateB = new Date(getPaymentDate(b) || 0).getTime();
+
+      if (dateA !== dateB) {
+        return dateA - dateB;
+      }
+
+      const createdA = new Date(a?.createdAt || 0).getTime();
+      const createdB = new Date(b?.createdAt || 0).getTime();
+
+      if (createdA !== createdB) {
+        return createdA - createdB;
+      }
+
+      return String(a?._id || "").localeCompare(String(b?._id || ""));
+    });
+
+    const saleRows = chronologicalSales.map((sale) => {
+      const total = Math.max(Number(sale?.grandTotal) || 0, 0);
+      const paidAtSale = Math.min(
+        Math.max(Number(sale?.paidAmount) || 0, 0),
+        total,
+      );
+
+      return {
+        sale,
+        total,
+        paidAtSale,
+        laterPaid: 0,
+        totalPaid: paidAtSale,
+        due: Math.max(total - paidAtSale, 0),
+        applications: [],
+      };
+    });
+
+    const paymentRows = chronologicalPayments.map((payment) => ({
+      payment,
+      amount: Math.max(Number(payment?.amount) || 0, 0),
+      appliedAmount: 0,
+      unallocatedAmount: 0,
+      applications: [],
+    }));
+
+    let saleIndex = 0;
+
+    for (const paymentRow of paymentRows) {
+      let remainingPayment = paymentRow.amount;
+
+      while (remainingPayment > 0.005 && saleIndex < saleRows.length) {
+        while (
+          saleIndex < saleRows.length &&
+          saleRows[saleIndex].due <= 0.005
+        ) {
+          saleIndex += 1;
+        }
+
+        if (saleIndex >= saleRows.length) {
+          break;
+        }
+
+        const saleRow = saleRows[saleIndex];
+
+        const appliedAmount = Math.min(remainingPayment, saleRow.due);
+
+        if (appliedAmount <= 0) {
+          saleIndex += 1;
+          continue;
+        }
+
+        saleRow.laterPaid += appliedAmount;
+        saleRow.totalPaid = saleRow.paidAtSale + saleRow.laterPaid;
+        saleRow.due = Math.max(saleRow.total - saleRow.totalPaid, 0);
+
+        const application = {
+          saleId: saleRow.sale?._id,
+          saleNumber: saleRow.sale?.saleNumber || saleRow.sale?._id,
+          amount: appliedAmount,
+        };
+
+        saleRow.applications.push({
+          paymentId: paymentRow.payment?._id,
+          paymentNumber:
+            paymentRow.payment?.paymentNumber || paymentRow.payment?._id,
+          amount: appliedAmount,
+        });
+
+        paymentRow.applications.push(application);
+        paymentRow.appliedAmount += appliedAmount;
+        remainingPayment -= appliedAmount;
+
+        if (saleRow.due <= 0.005) {
+          saleRow.due = 0;
+          saleIndex += 1;
+        }
+      }
+
+      paymentRow.unallocatedAmount = Math.max(remainingPayment, 0);
+    }
+
+    return {
+      saleRows,
+      paymentRows,
+    };
   }, [sellerSales, sellerPayments]);
 
   /* =======================================================
-     RUNNING BALANCE
+     DISPLAY ACCOUNT
   ======================================================= */
 
-  const ledgerWithBalance = useMemo(() => {
-    let balance = 0;
+  const displayAccountWithAllocation = useMemo(() => {
+    const totalSaleValue = allocationData.saleRows.reduce(
+      (total, row) => total + row.total,
+      0,
+    );
 
-    return chronologicalLedger.map((entry) => {
-      balance += Number(entry.debit || 0) - Number(entry.credit || 0);
+    const paidAtSale = allocationData.saleRows.reduce(
+      (total, row) => total + row.paidAtSale,
+      0,
+    );
 
-      balance = Math.max(balance, 0);
+    const laterPaid = allocationData.saleRows.reduce(
+      (total, row) => total + row.laterPaid,
+      0,
+    );
 
-      return {
-        ...entry,
-        balance,
-      };
-    });
-  }, [chronologicalLedger]);
+    const totalPaid = paidAtSale + laterPaid;
+
+    const currentDue = Math.max(totalSaleValue - totalPaid, 0);
+
+    const clearedSales = allocationData.saleRows.filter(
+      (row) => row.due <= 0.005,
+    ).length;
+
+    return {
+      totalSales: allocationData.saleRows.length,
+      totalSaleValue,
+      paidAtSale,
+      laterPaid,
+      totalPaid,
+      currentDue,
+      clearedSales,
+      dueSales: allocationData.saleRows.length - clearedSales,
+    };
+  }, [allocationData]);
 
   /* =======================================================
-     FILTERED LEDGER
+     FILTERED SALE / PAYMENT ROWS
   ======================================================= */
 
-  const filteredLedger = useMemo(() => {
-    const search = searchTerm.trim().toLowerCase();
+  const filteredSaleRows = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
 
     const startDate = createLocalDate(fromDate, false);
-
     const endDate = createLocalDate(toDate, true);
 
     if (startDate && endDate && startDate > endDate) {
       return [];
     }
 
-    const filtered = ledgerWithBalance.filter((entry) => {
-      if (search) {
-        const searchableText = [
-          entry.type,
-          entry.reference,
-          entry.description,
-          entry?.raw?.sellerName,
-          entry?.raw?.paymentNumber,
-          entry?.raw?.saleNumber,
-          entry?.raw?.referenceNumber,
-          entry?.raw?.note,
-          entry.debit,
-          entry.credit,
-          entry.balance,
-        ]
-          .filter((value) => value !== null && value !== undefined)
-          .join(" ")
-          .toLowerCase();
+    const filteredRows = allocationData.saleRows.filter((row) => {
+      const sale = row.sale;
 
-        if (!searchableText.includes(search)) {
-          return false;
-        }
+      if (!isDateInRange(getSaleDate(sale), fromDate, toDate)) {
+        return false;
       }
 
-      const entryDate = entry.date ? new Date(entry.date) : null;
-
-      if (entryDate && !Number.isNaN(entryDate.getTime())) {
-        if (startDate && entryDate < startDate) {
-          return false;
-        }
-
-        if (endDate && entryDate > endDate) {
-          return false;
-        }
+      if (!query) {
+        return true;
       }
 
-      return true;
+      const searchableText = [
+        sale?.saleNumber,
+        sale?._id,
+        sale?.sellerName,
+        sale?.items?.length,
+        row.total,
+        row.paidAtSale,
+        row.laterPaid,
+        row.totalPaid,
+        row.due,
+      ]
+        .filter((value) => value !== null && value !== undefined)
+        .join(" ")
+        .toLowerCase();
+
+      return searchableText.includes(query);
     });
 
-    return [...filtered].reverse();
-  }, [ledgerWithBalance, searchTerm, fromDate, toDate]);
+    return filteredRows.sort((a, b) => {
+      const dateA = new Date(getSaleDate(a.sale) || 0).getTime();
+      const dateB = new Date(getSaleDate(b.sale) || 0).getTime();
 
-  /* =======================================================
-     FILTER ACTIONS
-  ======================================================= */
+      if (dateA !== dateB) {
+        return saleDateSort === "newest" ? dateB - dateA : dateA - dateB;
+      }
+
+      const createdA = new Date(a.sale?.createdAt || 0).getTime();
+      const createdB = new Date(b.sale?.createdAt || 0).getTime();
+
+      return saleDateSort === "newest"
+        ? createdB - createdA
+        : createdA - createdB;
+    });
+  }, [
+    allocationData.saleRows,
+    searchTerm,
+    fromDate,
+    toDate,
+    isDateInRange,
+    saleDateSort,
+  ]);
+
+  const filteredPaymentRows = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+
+    const startDate = createLocalDate(fromDate, false);
+    const endDate = createLocalDate(toDate, true);
+
+    if (startDate && endDate && startDate > endDate) {
+      return [];
+    }
+
+    return allocationData.paymentRows.filter((row) => {
+      const payment = row.payment;
+
+      if (!isDateInRange(getPaymentDate(payment), fromDate, toDate)) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      const appliedTo = row.applications
+        .map((application) => application.saleNumber)
+        .join(" ");
+
+      const searchableText = [
+        payment?.paymentNumber,
+        payment?._id,
+        payment?.paymentMethod,
+        payment?.referenceNumber,
+        payment?.note,
+        row.amount,
+        row.appliedAmount,
+        row.unallocatedAmount,
+        appliedTo,
+      ]
+        .filter((value) => value !== null && value !== undefined)
+        .join(" ")
+        .toLowerCase();
+
+      return searchableText.includes(query);
+    });
+  }, [
+    allocationData.paymentRows,
+    searchTerm,
+    fromDate,
+    toDate,
+    isDateInRange,
+  ]);
+
+  const hasFilters = Boolean(searchTerm.trim() || fromDate || toDate);
 
   const clearFilters = useCallback(() => {
     setSearchTerm("");
@@ -747,7 +920,22 @@ function KhatabookSeller() {
     setToDate("");
   }, []);
 
-  const hasFilters = Boolean(searchTerm.trim() || fromDate || toDate);
+  /* =======================================================
+     RECENT PAYMENT APPLICATION TEXT
+  ======================================================= */
+
+  const getApplicationText = useCallback((paymentRow) => {
+    if (!paymentRow.applications.length) {
+      return "Not applied";
+    }
+
+    return paymentRow.applications
+      .map(
+        (application) =>
+          `${application.saleNumber} • ${formatCurrency(application.amount)}`,
+      )
+      .join("  |  ");
+  }, []);
 
   /* =======================================================
      LOADING
@@ -864,7 +1052,7 @@ function KhatabookSeller() {
 
   return (
     <div className="min-h-screen bg-slate-50 p-2 sm:p-3">
-      <div className="mx-auto w-full max-w-[1400px]">
+      <div className="mx-auto w-full max-w-[1500px]">
         {/* =================================================
             SELLER HEADER
         ================================================= */}
@@ -894,9 +1082,7 @@ function KhatabookSeller() {
 
               <div className="truncate text-[9px] text-slate-400">
                 {seller.phone}
-
                 {seller.phone && seller.city ? " • " : ""}
-
                 {seller.city}
               </div>
             </div>
@@ -905,7 +1091,7 @@ function KhatabookSeller() {
           <button
             type="button"
             onClick={openAddPayment}
-            disabled={Number(displayAccount.outstanding) <= 0}
+            disabled={Number(displayAccountWithAllocation.currentDue) <= 0}
             className="h-7 shrink-0 rounded border border-slate-800 bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
           >
             + Payment
@@ -927,14 +1113,13 @@ function KhatabookSeller() {
         ================================================= */}
 
         <div className="mb-2 overflow-hidden border border-slate-300 bg-white">
-          <div className="grid grid-cols-2 divide-x divide-y divide-slate-200 sm:grid-cols-4 sm:divide-y-0">
+          <div className="grid grid-cols-2 divide-x divide-y divide-slate-200 sm:grid-cols-3 lg:grid-cols-5 lg:divide-y-0">
             <div className="px-3 py-1.5">
               <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
                 Total Sale
               </p>
-
               <p className="text-sm font-bold tabular-nums text-slate-900">
-                {formatCurrency(displayAccount.totalSaleValue)}
+                {formatCurrency(displayAccountWithAllocation.totalSaleValue)}
               </p>
             </div>
 
@@ -942,9 +1127,8 @@ function KhatabookSeller() {
               <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
                 Paid at Sale
               </p>
-
               <p className="text-sm font-bold tabular-nums text-slate-700">
-                {formatCurrency(displayAccount.salePayments)}
+                {formatCurrency(displayAccountWithAllocation.paidAtSale)}
               </p>
             </div>
 
@@ -952,25 +1136,32 @@ function KhatabookSeller() {
               <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
                 Later Paid
               </p>
-
               <p className="text-sm font-bold tabular-nums text-emerald-600">
-                {formatCurrency(displayAccount.khatabookPayments)}
+                {formatCurrency(displayAccountWithAllocation.laterPaid)}
               </p>
             </div>
 
             <div className="px-3 py-1.5">
               <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
-                Outstanding
+                Total Paid
               </p>
+              <p className="text-sm font-bold tabular-nums text-emerald-600">
+                {formatCurrency(displayAccountWithAllocation.totalPaid)}
+              </p>
+            </div>
 
+            <div className="px-3 py-1.5">
+              <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                Current Due
+              </p>
               <p
                 className={`text-sm font-bold tabular-nums ${
-                  Number(displayAccount.outstanding) > 0
+                  Number(displayAccountWithAllocation.currentDue) > 0
                     ? "text-red-600"
                     : "text-emerald-600"
                 }`}
               >
-                {formatCurrency(displayAccount.outstanding)}
+                {formatCurrency(displayAccountWithAllocation.currentDue)}
               </p>
             </div>
           </div>
@@ -989,9 +1180,9 @@ function KhatabookSeller() {
                 </h2>
 
                 <p className="text-[9px] text-slate-500">
-                  Outstanding:{" "}
+                  Current Due:{" "}
                   <span className="font-bold text-red-600">
-                    {formatCurrency(displayAccount.outstanding)}
+                    {formatCurrency(displayAccountWithAllocation.currentDue)}
                   </span>
                 </p>
               </div>
@@ -1011,7 +1202,6 @@ function KhatabookSeller() {
                   <label className="mb-1 block text-[9px] font-bold uppercase text-slate-500">
                     Amount
                   </label>
-
                   <input
                     type="number"
                     min="0.01"
@@ -1028,18 +1218,14 @@ function KhatabookSeller() {
                   <label className="mb-1 block text-[9px] font-bold uppercase text-slate-500">
                     Method
                   </label>
-
                   <select
                     value={paymentMethod}
                     onChange={(event) => setPaymentMethod(event.target.value)}
                     className="h-7 w-full rounded border border-slate-300 bg-white px-2 text-xs outline-none focus:border-slate-500"
                   >
                     <option value="cash">Cash</option>
-
                     <option value="upi">UPI</option>
-
                     <option value="netbanking">Net Banking</option>
-
                     <option value="other">Other</option>
                   </select>
                 </div>
@@ -1048,7 +1234,6 @@ function KhatabookSeller() {
                   <label className="mb-1 block text-[9px] font-bold uppercase text-slate-500">
                     Date
                   </label>
-
                   <input
                     type="date"
                     value={paymentDate}
@@ -1062,13 +1247,10 @@ function KhatabookSeller() {
                   <label className="mb-1 block text-[9px] font-bold uppercase text-slate-500">
                     Reference
                   </label>
-
                   <input
                     type="text"
                     value={paymentReference}
-                    onChange={(event) =>
-                      setPaymentReference(event.target.value)
-                    }
+                    onChange={(event) => setPaymentReference(event.target.value)}
                     placeholder="Optional"
                     className="h-7 w-full rounded border border-slate-300 px-2 text-xs outline-none focus:border-slate-500"
                   />
@@ -1078,7 +1260,6 @@ function KhatabookSeller() {
                   <label className="mb-1 block text-[9px] font-bold uppercase text-slate-500">
                     Note
                   </label>
-
                   <input
                     type="text"
                     value={paymentNote}
@@ -1131,7 +1312,7 @@ function KhatabookSeller() {
                 type="text"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search transaction, reference, note..."
+                placeholder="Search sale, payment, reference, note..."
                 className="h-7 w-full rounded border border-slate-300 px-2 text-xs outline-none focus:border-slate-500"
               />
             </div>
@@ -1140,7 +1321,6 @@ function KhatabookSeller() {
               <label className="text-[9px] font-bold uppercase text-slate-500">
                 From
               </label>
-
               <input
                 type="date"
                 value={fromDate}
@@ -1153,24 +1333,23 @@ function KhatabookSeller() {
               <label className="text-[9px] font-bold uppercase text-slate-500">
                 To
               </label>
-
               <input
                 type="date"
-                value={toDate}
                 min={fromDate || undefined}
+                value={toDate}
                 onChange={(event) => setToDate(event.target.value)}
                 className="h-7 w-[135px] rounded border border-slate-300 px-2 text-[11px] outline-none focus:border-slate-500"
               />
             </div>
 
             <div className="ml-auto whitespace-nowrap text-[10px] text-slate-500">
-              Showing{" "}
+              Sales{" "}
               <span className="font-bold text-slate-700">
-                {filteredLedger.length}
-              </span>{" "}
-              of{" "}
+                {filteredSaleRows.length}
+              </span>
+              {" • "}Payments{" "}
               <span className="font-bold text-slate-700">
-                {ledgerWithBalance.length}
+                {filteredPaymentRows.length}
               </span>
             </div>
 
@@ -1187,54 +1366,211 @@ function KhatabookSeller() {
         </div>
 
         {/* =================================================
-            LEDGER TABLE
+            SALES / DUE TABLE
+        ================================================= */}
+
+        <div className="mb-2 overflow-hidden border border-slate-300 bg-white">
+          <div className="flex min-h-8 items-center justify-between border-b border-slate-300 bg-slate-100 px-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-bold text-slate-800">
+                  Sales & Due
+                </h2>
+                <span className="text-[9px] text-slate-400">
+                  Oldest due is cleared first
+                </span>
+              </div>
+            </div>
+
+            <div className="text-[9px] text-slate-500">
+              {displayAccountWithAllocation.clearedSales} cleared •{" "}
+              {displayAccountWithAllocation.dueSales} due
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1050px] border-collapse text-xs">
+              <thead>
+                <tr className="h-8 border-b border-slate-300 bg-slate-50">
+                  <th className="w-[105px] border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSaleDateSort((current) =>
+                          current === "newest" ? "oldest" : "newest",
+                        )
+                      }
+                      className="inline-flex items-center gap-1 rounded px-1 py-0.5 transition hover:bg-slate-200 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      title={`Sort by date: ${
+                        saleDateSort === "newest" ? "oldest first" : "newest first"
+                      }`}
+                      aria-label={`Sort sales by date: ${
+                        saleDateSort === "newest" ? "oldest first" : "newest first"
+                      }`}
+                    >
+                      <span>Date</span>
+                      <span className="text-[8px] text-slate-400">
+                        {saleDateSort === "newest" ? "↓" : "↑"}
+                      </span>
+                    </button>
+                  </th>
+                  <th className="w-[155px] border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                    Sale Reference
+                  </th>
+                  <th className="w-[130px] border-r border-slate-300 px-2 text-right text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                    Sale Amount
+                  </th>
+                  <th className="w-[130px] border-r border-slate-300 px-2 text-right text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                    Paid at Sale
+                  </th>
+                  <th className="w-[130px] border-r border-slate-300 px-2 text-right text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                    Later Paid
+                  </th>
+                  <th className="w-[130px] border-r border-slate-300 px-2 text-right text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                    Total Paid
+                  </th>
+                  <th className="w-[130px] border-r border-slate-300 px-2 text-right text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                    Due
+                  </th>
+                  <th className="w-[125px] px-2 text-center text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                    Status
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filteredSaleRows.length === 0 ? (
+                  <tr>
+                    <td colSpan="8" className="px-4 py-8 text-center">
+                      <p className="text-xs font-semibold text-slate-600">
+                        {hasFilters ? "No matching sales" : "No sales found"}
+                      </p>
+                      <p className="mt-1 text-[10px] text-slate-400">
+                        {hasFilters
+                          ? "Try changing the search or date range."
+                          : "Sales for this seller will appear here."}
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredSaleRows.map((row) => {
+                    const cleared = row.due <= 0.005;
+                    const partiallyPaid = row.totalPaid > 0 && !cleared;
+
+                    return (
+                      <tr
+                        key={row.sale?._id}
+                        className={`h-10 border-b border-slate-200 last:border-b-0 ${
+                          cleared ? "bg-emerald-50/70" : "hover:bg-slate-50"
+                        }`}
+                      >
+                        <td className="border-r border-slate-200 px-2 whitespace-nowrap text-[10px] text-slate-600">
+                          {formatDate(getSaleDate(row.sale))}
+                        </td>
+
+                        <td className="border-r border-slate-200 px-2 text-[10px] font-semibold text-slate-700">
+                          {row.sale?.saleNumber || row.sale?._id || "—"}
+                        </td>
+
+                        <td className="border-r border-slate-200 px-2 text-right font-semibold tabular-nums text-slate-900">
+                          {formatCurrency(row.total)}
+                        </td>
+
+                        <td className="border-r border-slate-200 px-2 text-right font-semibold tabular-nums text-slate-700">
+                          {formatCurrency(row.paidAtSale)}
+                        </td>
+
+                        <td className="border-r border-slate-200 px-2 text-right font-semibold tabular-nums text-emerald-600">
+                          {row.laterPaid > 0 ? formatCurrency(row.laterPaid) : "—"}
+                        </td>
+
+                        <td className="border-r border-slate-200 px-2 text-right font-bold tabular-nums text-emerald-600">
+                          {formatCurrency(row.totalPaid)}
+                        </td>
+
+                        <td className="border-r border-slate-200 px-2 text-right font-bold tabular-nums">
+                          <span
+                            className={
+                              cleared ? "text-emerald-600" : "text-red-600"
+                            }
+                          >
+                            {formatCurrency(row.due)}
+                          </span>
+                        </td>
+
+                        <td className="px-2 text-center">
+                          {cleared ? (
+                            <span className="inline-flex rounded border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-[9px] font-bold text-emerald-700">
+                              Cleared
+                            </span>
+                          ) : partiallyPaid ? (
+                            <span className="inline-flex rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700">
+                              Partially Paid
+                            </span>
+                          ) : (
+                            <span className="inline-flex rounded border border-red-200 bg-red-50 px-2 py-0.5 text-[9px] font-bold text-red-600">
+                              Due
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex h-7 items-center justify-between border-t border-slate-300 bg-slate-50 px-2 text-[9px] text-slate-500">
+            <span>Sale-wise payment allocation</span>
+            <span>
+              Total Due: {formatCurrency(displayAccountWithAllocation.currentDue)}
+            </span>
+          </div>
+        </div>
+
+        {/* =================================================
+            PAYMENT HISTORY TABLE
         ================================================= */}
 
         <div className="overflow-hidden border border-slate-300 bg-white">
-          <div className="flex h-8 items-center justify-between border-b border-slate-300 bg-slate-100 px-2">
+          <div className="flex min-h-8 items-center justify-between border-b border-slate-300 bg-slate-100 px-2">
             <div className="flex items-center gap-2">
-              <h2 className="text-xs font-bold text-slate-800">Ledger</h2>
-
-              <span className="text-[9px] text-slate-400">Newest first</span>
+              <h2 className="text-xs font-bold text-slate-800">
+                Payment History
+              </h2>
+              <span className="text-[9px] text-slate-400">
+                Every later payment is shown here
+              </span>
             </div>
 
             <span className="text-[9px] text-slate-500">
-              {filteredLedger.length} records
+              {filteredPaymentRows.length} payments
             </span>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[850px] border-collapse text-xs">
+            <table className="w-full min-w-[950px] border-collapse text-xs">
               <thead>
                 <tr className="h-8 border-b border-slate-300 bg-slate-50">
-                  <th className="w-[110px] border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                  <th className="w-[105px] border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
                     Date
                   </th>
-
-                  <th className="w-[85px] border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
-                    Type
+                  <th className="w-[155px] border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                    Payment Reference
                   </th>
-
-                  <th className="w-[150px] border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
-                    Reference
+                  <th className="w-[125px] border-r border-slate-300 px-2 text-right text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                    Amount Paid
                   </th>
-
-                  <th className="border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
-                    Description
+                  <th className="w-[115px] border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                    Method
                   </th>
-
-                  <th className="w-[130px] border-r border-slate-300 px-2 text-right text-[9px] font-bold uppercase tracking-wide text-slate-600">
-                    Debit
+                  <th className="min-w-[350px] border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                    Applied To Oldest Due First
                   </th>
-
-                  <th className="w-[130px] border-r border-slate-300 px-2 text-right text-[9px] font-bold uppercase tracking-wide text-slate-600">
-                    Credit
+                  <th className="w-[120px] border-r border-slate-300 px-2 text-center text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                    Status
                   </th>
-
-                  <th className="w-[140px] border-r border-slate-300 px-2 text-right text-[9px] font-bold uppercase tracking-wide text-slate-600">
-                    Balance
-                  </th>
-
                   <th className="w-[125px] px-2 text-center text-[9px] font-bold uppercase tracking-wide text-slate-600">
                     Actions
                   </th>
@@ -1242,100 +1578,74 @@ function KhatabookSeller() {
               </thead>
 
               <tbody>
-                {filteredLedger.length === 0 ? (
+                {filteredPaymentRows.length === 0 ? (
                   <tr>
-                    <td colSpan="8" className="px-4 py-8 text-center">
+                    <td colSpan="7" className="px-4 py-8 text-center">
                       <p className="text-xs font-semibold text-slate-600">
                         {hasFilters
-                          ? "No matching transactions"
-                          : "No transactions found"}
+                          ? "No matching payments"
+                          : "No later payments found"}
                       </p>
-
                       <p className="mt-1 text-[10px] text-slate-400">
-                        {hasFilters
-                          ? "Try changing the search or date range."
-                          : "Sales and payments will appear here."}
+                        Payments recorded from this Khatabook will appear here.
                       </p>
-
-                      {hasFilters && (
-                        <button
-                          type="button"
-                          onClick={clearFilters}
-                          className="mt-2 h-7 rounded border border-slate-300 bg-white px-3 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
-                        >
-                          Clear
-                        </button>
-                      )}
                     </td>
                   </tr>
                 ) : (
-                  filteredLedger.map((entry) => (
-                    <tr
-                      key={entry.id}
-                      className="h-9 border-b border-slate-200 last:border-b-0 hover:bg-slate-50"
-                    >
-                      {/* Date */}
+                  [...filteredPaymentRows].reverse().map((row) => {
+                    const fullyApplied = row.unallocatedAmount <= 0.005;
 
-                      <td className="border-r border-slate-200 px-2 whitespace-nowrap text-[10px] text-slate-600">
-                        {formatDate(entry.date)}
-                      </td>
+                    return (
+                      <tr
+                        key={row.payment?._id}
+                        className={`h-10 border-b border-slate-200 last:border-b-0 ${
+                          fullyApplied ? "bg-emerald-50/50" : "bg-red-50/60"
+                        }`}
+                      >
+                        <td className="border-r border-slate-200 px-2 whitespace-nowrap text-[10px] text-slate-600">
+                          {formatDate(getPaymentDate(row.payment))}
+                        </td>
 
-                      {/* Type */}
+                        <td className="border-r border-slate-200 px-2 text-[10px] font-semibold text-slate-700">
+                          {row.payment?.paymentNumber || row.payment?._id || "—"}
+                        </td>
 
-                      <td className="border-r border-slate-200 px-2">
-                        {entry.type === "sale" ? (
-                          <span className="inline-flex rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[9px] font-bold text-red-600">
-                            Sale
-                          </span>
-                        ) : (
-                          <span className="inline-flex rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-600">
-                            Payment
-                          </span>
-                        )}
-                      </td>
+                        <td className="border-r border-slate-200 px-2 text-right font-bold tabular-nums text-emerald-600">
+                          {formatCurrency(row.amount)}
+                        </td>
 
-                      {/* Reference */}
+                        <td className="border-r border-slate-200 px-2 text-[10px] text-slate-600">
+                          {row.payment?.paymentMethod || "—"}
+                        </td>
 
-                      <td className="border-r border-slate-200 px-2 text-[10px] text-slate-500">
-                        <span title={String(entry.reference || "—")}>
-                          {String(entry.reference || "—").slice(0, 24)}
-                        </span>
-                      </td>
+                        <td className="border-r border-slate-200 px-2">
+                          <div className="max-w-[600px] truncate text-[10px] text-slate-700" title={getApplicationText(row)}>
+                            {getApplicationText(row)}
+                          </div>
+                        </td>
 
-                      {/* Description */}
+                        <td className="border-r border-slate-200 px-2 text-center">
+                          {fullyApplied ? (
+                            <span className="inline-flex rounded border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-[9px] font-bold text-emerald-700">
+                              Fully Applied
+                            </span>
+                          ) : (
+                            <div>
+                              <span className="inline-flex rounded border border-red-200 bg-red-100 px-2 py-0.5 text-[9px] font-bold text-red-700">
+                                Unapplied
+                              </span>
+                              <div className="mt-0.5 text-[8px] text-red-600">
+                                {formatCurrency(row.unallocatedAmount)} left
+                              </div>
+                            </div>
+                          )}
+                        </td>
 
-                      <td className="border-r border-slate-200 px-2">
-                        <span className="block max-w-[350px] truncate text-[10px] text-slate-700">
-                          {entry.description}
-                        </span>
-                      </td>
-
-                      {/* Debit */}
-
-                      <td className="border-r border-slate-200 px-2 text-right font-semibold tabular-nums text-red-600">
-                        {entry.debit > 0 ? formatCurrency(entry.debit) : "—"}
-                      </td>
-
-                      {/* Credit */}
-
-                      <td className="border-r border-slate-200 px-2 text-right font-semibold tabular-nums text-emerald-600">
-                        {entry.credit > 0 ? formatCurrency(entry.credit) : "—"}
-                      </td>
-
-                      {/* Balance */}
-
-                      <td className="border-r border-slate-200 px-2 text-right font-bold tabular-nums text-slate-900">
-                        {formatCurrency(entry.balance)}
-                      </td>
-
-                      {/* Actions */}
-
-                      <td className="px-2 text-center">
-                        {entry.type === "payment" && (
+                        <td className="px-2 text-center">
                           <div className="flex justify-center gap-1">
                             <button
                               type="button"
-                              onClick={() => openEditPayment(entry.raw)}
+                              onClick={() => openEditPayment(row.payment)}
                               className="h-6 rounded border border-slate-300 bg-white px-2 text-[9px] font-semibold text-slate-600 hover:bg-slate-100"
                             >
                               Edit
@@ -1343,32 +1653,25 @@ function KhatabookSeller() {
 
                             <button
                               type="button"
-                              onClick={() => handleDeletePayment(entry.raw)}
+                              onClick={() => handleDeletePayment(row.payment)}
                               className="h-6 rounded border border-red-200 bg-red-50 px-2 text-[9px] font-semibold text-red-600 hover:bg-red-100"
                             >
                               Delete
                             </button>
                           </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
           </div>
 
-          {/* =================================================
-              FOOTER
-          ================================================= */}
-
-          <div className="flex h-6 items-center justify-between border-t border-slate-300 bg-slate-50 px-2 text-[9px] text-slate-400">
-            <span>Seller Ledger</span>
-
+          <div className="flex h-7 items-center justify-between border-t border-slate-300 bg-slate-50 px-2 text-[9px] text-slate-500">
+            <span>Later Khatabook payments</span>
             <span>
-              {displayAccount.totalSales} sales
-              {" • "}
-              {sellerPayments.length} payments
+              Later Paid: {formatCurrency(displayAccountWithAllocation.laterPaid)}
             </span>
           </div>
         </div>
