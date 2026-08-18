@@ -150,6 +150,19 @@ const purchaseSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+
+    /*
+     * Amount paid at the time this purchase was created.
+     *
+     * Later buyer payments are stored separately in
+     * BuyerPayment and are intentionally not copied here.
+     */
+    paidAtPurchase: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+    },
   },
   {
     timestamps: true,

@@ -95,6 +95,11 @@ const navigationSections = [
         path: "/dashboard/khatabook",
         icon: "ledger",
       },
+      {
+        label: "Money Due",
+        path: "/dashboard/money-due",
+        icon: "money-due",
+      },
     ],
   },
 ];
@@ -188,6 +193,15 @@ function DashboardIcon({ type }) {
         <svg {...commonProps}>
           <rect x="5" y="5" width="14" height="14" rx="1.5" />
           <path d="M8 9h8M8 12h8M8 15h8" />
+        </svg>
+      );
+
+    case "money-due":
+      return (
+        <svg {...commonProps}>
+          <path d="M6 8h12v10H6z" />
+          <path d="M8 8V6h8v2" />
+          <path d="M10 12h4M12 10v4" />
         </svg>
       );
 

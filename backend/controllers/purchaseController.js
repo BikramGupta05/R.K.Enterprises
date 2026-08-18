@@ -3,6 +3,7 @@ import Purchase from "../models/Purchase.js";
 import Buyer from "../models/Buyer.js";
 import Item from "../models/Item.js";
 import Stock from "../models/Stock.js";
+import BuyerPayment from "../models/BuyerPayment.js";
 
 const getUserId = (req) => {
   const userId = req.user?._id || req.user?.id;
@@ -178,6 +179,147 @@ const normalizeItems = async ({ items, userId }) => {
    Calculate Totals
 ========================================================= */
 
+const ALLOWED_PAYMENT_METHODS = ["Cash", "UPI", "Net Banking", "Other"];
+
+const BUYER_PAYMENT_SOURCE = "PURCHASE";
+
+const toDateOrNow = (value) => {
+  if (!value) {
+    return new Date();
+  }
+
+  const date = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    const error = new Error("Invalid purchase date");
+
+    error.status = 400;
+
+    throw error;
+  }
+
+  return date;
+};
+
+const generateBuyerPaymentNumber = async (session = null) => {
+  const date = new Date();
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  const prefix = `BYPAY-${year}${month}${day}`;
+
+  let query = BuyerPayment.findOne({
+    paymentNumber: { $regex: `^${prefix}-` },
+  })
+    .sort({ paymentNumber: -1 })
+    .select("paymentNumber");
+
+  if (session) {
+    query = query.session(session);
+  }
+
+  const latestPayment = await query.lean();
+
+  let nextNumber = 1;
+
+  if (latestPayment?.paymentNumber) {
+    const lastPart = latestPayment.paymentNumber.split("-").pop();
+    const parsedNumber = Number(lastPart);
+
+    if (Number.isFinite(parsedNumber)) {
+      nextNumber = parsedNumber + 1;
+    }
+  }
+
+  return `${prefix}-${String(nextNumber).padStart(4, "0")}`;
+};
+
+const getPurchasePaidAmount = async ({ purchaseId, userId, session = null }) => {
+  let query = BuyerPayment.find({
+    user: userId,
+    purchase: purchaseId,
+    source: BUYER_PAYMENT_SOURCE,
+  }).select("amount");
+
+  if (session) {
+    query = query.session(session);
+  }
+
+  const payments = await query.lean();
+
+  return payments.reduce((total, payment) => total + toNumber(payment.amount), 0);
+};
+
+const getBuyerAccount = async ({ buyerId, userId, session = null }) => {
+  let purchaseQuery = Purchase.find({
+    user: userId,
+    buyer: buyerId,
+  }).select("grandTotal");
+
+  let paymentQuery = BuyerPayment.find({
+    user: userId,
+    buyer: buyerId,
+  }).select("amount source paymentDate purchase buyerName paymentMethod note referenceNumber paymentNumber");
+
+  if (session) {
+    purchaseQuery = purchaseQuery.session(session);
+    paymentQuery = paymentQuery.session(session);
+  }
+
+  const [purchases, payments] = await Promise.all([
+    purchaseQuery.lean(),
+    paymentQuery.lean(),
+  ]);
+
+  const totalPurchased = purchases.reduce(
+    (total, purchase) => total + toNumber(purchase.grandTotal),
+    0,
+  );
+
+  const totalPaid = payments.reduce(
+    (total, payment) => total + toNumber(payment.amount),
+    0,
+  );
+
+  return {
+    totalPurchased,
+    totalPaid,
+    totalDue: Math.max(totalPurchased - totalPaid, 0),
+    purchaseCount: purchases.length,
+    paymentCount: payments.length,
+  };
+};
+
+const validateInitialPayment = ({ paidAmount, grandTotal, paymentMethod }) => {
+  const amount = paidAmount === undefined || paidAmount === null || paidAmount === ""
+    ? 0
+    : Number(paidAmount);
+
+  if (!Number.isFinite(amount) || amount < 0) {
+    const error = new Error("Paid amount must be zero or greater");
+    error.status = 400;
+    throw error;
+  }
+
+  if (amount > grandTotal) {
+    const error = new Error(
+      `Paid amount cannot be greater than the purchase total of ₹${grandTotal.toFixed(2)}`,
+    );
+    error.status = 400;
+    throw error;
+  }
+
+  if (amount > 0 && !ALLOWED_PAYMENT_METHODS.includes(paymentMethod)) {
+    const error = new Error("A valid payment method is required when an amount is paid");
+    error.status = 400;
+    throw error;
+  }
+
+  return amount;
+};
+
 const calculateTotals = (items, carriage) => {
   const itemsTotal = items.reduce((sum, item) => sum + toNumber(item.total), 0);
 
@@ -348,7 +490,16 @@ export const createPurchase = async (req, res, next) => {
        *
        * buyer
        */
-      const { buyerId, purchaseDate, items, carriage } = req.body;
+      const {
+        buyerId,
+        purchaseDate,
+        items,
+        carriage,
+        paidAmount,
+        paymentMethod,
+        paymentNote,
+        paymentReferenceNumber,
+      } = req.body;
 
       /* -------------------- Validate Buyer -------------------- */
 
@@ -384,6 +535,14 @@ export const createPurchase = async (req, res, next) => {
 
       const totals = calculateTotals(normalizedItems, carriage);
 
+      const initialPaidAmount = validateInitialPayment({
+        paidAmount,
+        grandTotal: totals.grandTotal,
+        paymentMethod,
+      });
+
+      const finalPurchaseDate = toDateOrNow(purchaseDate);
+
       /* -------------------- Purchase Number -------------------- */
 
       const now = new Date();
@@ -408,9 +567,7 @@ export const createPurchase = async (req, res, next) => {
 
             purchaseNumber,
 
-            purchaseDate: purchaseDate
-              ? new Date(`${purchaseDate}T00:00:00`)
-              : new Date(),
+            purchaseDate: finalPurchaseDate,
 
             items: normalizedItems,
 
@@ -419,12 +576,40 @@ export const createPurchase = async (req, res, next) => {
             carriage: totals.carriage,
 
             grandTotal: totals.grandTotal,
+
+            paidAtPurchase: initialPaidAmount,
           },
         ],
         {
           session,
         },
       );
+
+      if (initialPaidAmount > 0) {
+        const paymentNumber = await generateBuyerPaymentNumber(session);
+
+        await BuyerPayment.create(
+          [
+            {
+              user: req.user.id,
+              buyer: buyerData._id,
+              buyerName: buyerData.shopName,
+              purchase: purchase[0]._id,
+              paymentNumber,
+              source: BUYER_PAYMENT_SOURCE,
+              paymentDate: finalPurchaseDate,
+              amount: initialPaidAmount,
+              paymentMethod,
+              note: typeof paymentNote === "string" ? paymentNote.trim() : "",
+              referenceNumber:
+                typeof paymentReferenceNumber === "string"
+                  ? paymentReferenceNumber.trim()
+                  : "",
+            },
+          ],
+          { session },
+        );
+      }
 
       /* -------------------- Update Stock -------------------- */
 
@@ -542,7 +727,16 @@ export const updatePurchase = async (req, res, next) => {
       /*
        * Existing frontend sends buyerId.
        */
-      const { buyerId, purchaseDate, items, carriage } = req.body;
+      const {
+        buyerId,
+        purchaseDate,
+        items,
+        carriage,
+        paidAmount,
+        paymentMethod,
+        paymentNote,
+        paymentReferenceNumber,
+      } = req.body;
 
       /* -------------------- Buyer -------------------- */
 
@@ -578,6 +772,30 @@ export const updatePurchase = async (req, res, next) => {
 
       const totals = calculateTotals(normalizedItems, carriage);
 
+      const purchasePayments = await BuyerPayment.find({
+        user: req.user.id,
+        purchase: existingPurchase._id,
+        source: BUYER_PAYMENT_SOURCE,
+      }).session(session);
+
+      const existingPaidAmount = purchasePayments.reduce(
+        (total, payment) => total + toNumber(payment.amount),
+        0,
+      );
+
+      const requestedPaidAmount =
+        paidAmount === undefined ? existingPaidAmount : paidAmount;
+
+      const existingPaymentMethod = purchasePayments[0]?.paymentMethod;
+
+      const updatedPaidAmount = validateInitialPayment({
+        paidAmount: requestedPaidAmount,
+        grandTotal: totals.grandTotal,
+        paymentMethod:
+          paymentMethod ||
+          (existingPaidAmount > 0 ? existingPaymentMethod : undefined),
+      });
+
       /*
        * Return the old purchase quantities
        * to stock first.
@@ -604,7 +822,7 @@ export const updatePurchase = async (req, res, next) => {
       existingPurchase.buyerName = buyerData.shopName;
 
       if (purchaseDate) {
-        existingPurchase.purchaseDate = new Date(`${purchaseDate}T00:00:00`);
+        existingPurchase.purchaseDate = toDateOrNow(purchaseDate);
       }
 
       existingPurchase.items = normalizedItems;
@@ -614,6 +832,59 @@ export const updatePurchase = async (req, res, next) => {
       existingPurchase.carriage = totals.carriage;
 
       existingPurchase.grandTotal = totals.grandTotal;
+
+      existingPurchase.paidAtPurchase = updatedPaidAmount;
+
+      /*
+       * Keep the purchase-linked initial payment synchronized
+       * with the edited purchase.
+       */
+      if (updatedPaidAmount <= 0) {
+        if (purchasePayments.length > 0) {
+          await BuyerPayment.deleteMany({
+            user: req.user.id,
+            purchase: existingPurchase._id,
+            source: BUYER_PAYMENT_SOURCE,
+          }).session(session);
+        }
+      } else {
+        const paymentDate = purchaseDate
+          ? toDateOrNow(purchaseDate)
+          : existingPurchase.purchaseDate;
+
+        const paymentPayload = {
+          user: req.user.id,
+          buyer: buyerData._id,
+          buyerName: buyerData.shopName,
+          purchase: existingPurchase._id,
+          source: BUYER_PAYMENT_SOURCE,
+          paymentDate,
+          amount: updatedPaidAmount,
+          paymentMethod: paymentMethod || existingPaymentMethod || "Other",
+          note:
+            typeof paymentNote === "string"
+              ? paymentNote.trim()
+              : purchasePayments[0]?.note || "",
+          referenceNumber:
+            typeof paymentReferenceNumber === "string"
+              ? paymentReferenceNumber.trim()
+              : purchasePayments[0]?.referenceNumber || "",
+        };
+
+        if (purchasePayments.length > 0) {
+          purchasePayments[0].set(paymentPayload);
+          await purchasePayments[0].save({ session });
+
+          if (purchasePayments.length > 1) {
+            await BuyerPayment.deleteMany({
+              _id: { $in: purchasePayments.slice(1).map((payment) => payment._id) },
+            }).session(session);
+          }
+        } else {
+          paymentPayload.paymentNumber = await generateBuyerPaymentNumber(session);
+          await BuyerPayment.create([paymentPayload], { session });
+        }
+      }
 
       await existingPurchase.save({
         session,
@@ -665,6 +936,35 @@ export const deletePurchase = async (req, res, next) => {
       }
 
       /*
+       * Deleting a purchase must never leave the buyer
+       * with more recorded payments than purchases.
+       */
+      const buyerAccount = await getBuyerAccount({
+        buyerId: purchase.buyer,
+        userId: req.user.id,
+        session,
+      });
+
+      const purchaseLinkedPaidAmount = await getPurchasePaidAmount({
+        purchaseId: purchase._id,
+        userId: req.user.id,
+        session,
+      });
+
+      const remainingPurchased =
+        buyerAccount.totalPurchased - Number(purchase.grandTotal || 0);
+
+      const remainingPaid = buyerAccount.totalPaid - purchaseLinkedPaidAmount;
+
+      if (remainingPurchased + 0.000001 < remainingPaid) {
+        const error = new Error(
+          "This purchase cannot be deleted because the buyer has payments recorded against the account. Remove or adjust those payments first.",
+        );
+        error.status = 409;
+        throw error;
+      }
+
+      /*
        * Remove this purchase from stock.
        */
       await decreaseStock({
@@ -672,6 +972,12 @@ export const deletePurchase = async (req, res, next) => {
         items: purchase.items,
         session,
       });
+
+      await BuyerPayment.deleteMany({
+        user: req.user.id,
+        purchase: purchase._id,
+        source: BUYER_PAYMENT_SOURCE,
+      }).session(session);
 
       await purchase.deleteOne({
         session,

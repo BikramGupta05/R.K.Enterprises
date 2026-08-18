@@ -219,6 +219,18 @@ function PurchaseHistory() {
   };
 
   /* =========================================================
+     EDIT PURCHASE
+  ========================================================= */
+
+  const handleEditPurchase = (purchase) => {
+    if (!purchase?._id) {
+      return;
+    }
+
+    navigate(`/dashboard/purchase/${purchase._id}/edit`);
+  };
+
+  /* =========================================================
      CLOSE PURCHASE DETAILS
   ========================================================= */
 
@@ -455,7 +467,15 @@ function PurchaseHistory() {
                           Grand Total
                         </th>
 
-                        <th className="w-[75px] px-2 py-2 text-center">
+                        <th className="w-[115px] border-r border-slate-200 px-2.5 py-2 text-right">
+                          Paid
+                        </th>
+
+                        <th className="w-[115px] border-r border-slate-200 px-2.5 py-2 text-right">
+                          Due
+                        </th>
+
+                        <th className="w-[135px] px-2 py-2 text-center">
                           Action
                         </th>
                       </tr>
@@ -499,14 +519,36 @@ function PurchaseHistory() {
                             ₹{Number(purchase.grandTotal || 0).toFixed(2)}
                           </td>
 
+                          <td className="border-r border-slate-100 px-2.5 py-1.5 text-right font-medium tabular-nums text-emerald-700">
+                            ₹{Number(purchase.paidAtPurchase || 0).toFixed(2)}
+                          </td>
+
+                          <td className="border-r border-slate-100 px-2.5 py-1.5 text-right font-semibold tabular-nums text-amber-700">
+                            ₹{Math.max(
+                              Number(purchase.grandTotal || 0) -
+                                Number(purchase.paidAtPurchase || 0),
+                              0,
+                            ).toFixed(2)}
+                          </td>
+
                           <td className="px-1.5 py-1 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleViewPurchase(purchase)}
-                              className="inline-flex h-6 items-center rounded border border-slate-300 bg-white px-2 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-100"
-                            >
-                              View
-                            </button>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleViewPurchase(purchase)}
+                                className="inline-flex h-6 items-center rounded border border-slate-300 bg-white px-2 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-100"
+                              >
+                                View
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleEditPurchase(purchase)}
+                                className="inline-flex h-6 items-center rounded border border-blue-200 bg-blue-50 px-2 text-[10px] font-semibold text-blue-700 transition hover:bg-blue-100"
+                              >
+                                Edit
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

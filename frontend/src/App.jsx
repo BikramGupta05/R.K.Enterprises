@@ -25,6 +25,8 @@ import Expenditure from "./routes/Expenditure.jsx";
 
 import Khatabook from "./routes/Khatabook.jsx";
 import KhatabookSeller from "./routes/KhatabookSeller.jsx";
+import MoneyDue from "./routes/MoneyDue.jsx";
+import MoneyDueBuyer from "./routes/MoneyDueBuyer.jsx";
 
 import { useAuth } from "./contexts/AuthContext.jsx";
 
@@ -134,6 +136,8 @@ function App() {
 
           <Route path="purchase" element={<Purchase />} />
 
+          <Route path="purchase/:purchaseId/edit" element={<Purchase />} />
+
           <Route path="selling" element={<Selling />} />
 
           {/* -----------------------------------------------
@@ -155,6 +159,10 @@ function App() {
           <Route path="khatabook" element={<Khatabook />} />
 
           <Route path="khatabook/:sellerId" element={<KhatabookSeller />} />
+
+          <Route path="money-due" element={<MoneyDue />} />
+
+          <Route path="money-due/:buyerId" element={<MoneyDueBuyer />} />
 
           {/* -----------------------------------------------
               ACCOUNT
@@ -231,6 +239,16 @@ function App() {
         <Route
           path="/khatabook/:sellerId"
           element={<LegacyKhatabookSellerRedirect />}
+        />
+
+        <Route
+          path="/money-due"
+          element={<Navigate to="/dashboard/money-due" replace />}
+        />
+
+        <Route
+          path="/money-due/:buyerId"
+          element={<Navigate to="/dashboard/money-due" replace />}
         />
 
         {/* ===================================================
