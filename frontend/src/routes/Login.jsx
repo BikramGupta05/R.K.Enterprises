@@ -51,6 +51,27 @@ function Login() {
           >
             Email address
           </label>
+
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+          />
+        </div>
+
+        <div>
+          <label
+            className="block text-sm font-medium text-slate-700"
+            htmlFor="password"
+          >
+            Password
+          </label>
+
           <input
             id="password"
             name="password"
@@ -62,22 +83,7 @@ function Login() {
             className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
           />
         </div>
-        <div>
-          <label
-            className="block text-sm font-medium text-slate-700"
-            htmlFor="password"
-          >
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-          />
-        </div>
+
         <div className="flex items-center justify-between text-sm text-slate-600">
           <Link
             className="font-medium text-slate-900 hover:text-slate-700"
@@ -86,11 +92,13 @@ function Login() {
             Forgot password?
           </Link>
         </div>
+
         {error && (
           <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {error}
           </div>
         )}
+
         <button
           type="submit"
           disabled={loading}
