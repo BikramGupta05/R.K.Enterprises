@@ -19,16 +19,21 @@ const createAccessToken = (user) => {
   );
 };
 
-const createRefreshToken = () => crypto.randomBytes(64).toString("hex");
+const createRefreshToken = () => {
+  return crypto.randomBytes(64).toString("hex");
+};
 
-const hashToken = (token) =>
-  crypto.createHash("sha256").update(token).digest("hex");
+const hashToken = (token) => {
+  return crypto.createHash("sha256").update(token).digest("hex");
+};
 
 const createTokenCookie = (res, token) => {
+  const isProduction = process.env.NODE_ENV === "production";
+
   const cookieOptions = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
     path: "/",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   };
