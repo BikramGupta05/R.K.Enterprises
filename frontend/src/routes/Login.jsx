@@ -99,7 +99,7 @@ function Login() {
       </form>
       <div className="mt-6">
         <a
-          href="/api/auth/google"
+          href={`${import.meta.env.VITE_API_URL}/auth/google`}
           className="inline-flex w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm transition hover:bg-slate-50"
         >
           Continue with Google

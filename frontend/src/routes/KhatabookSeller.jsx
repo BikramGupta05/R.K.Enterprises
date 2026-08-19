@@ -1388,9 +1388,9 @@ function KhatabookSeller() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="max-h-[360px] overflow-auto">
             <table className="w-full min-w-[1050px] border-collapse text-xs">
-              <thead>
+              <thead className="sticky top-0 z-10">
                 <tr className="h-8 border-b border-slate-300 bg-slate-50">
                   <th className="w-[105px] border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
                     <button
@@ -1549,9 +1549,9 @@ function KhatabookSeller() {
             </span>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="max-h-[360px] overflow-auto">
             <table className="w-full min-w-[950px] border-collapse text-xs">
-              <thead>
+              <thead className="sticky top-0 z-10">
                 <tr className="h-8 border-b border-slate-300 bg-slate-50">
                   <th className="w-[105px] border-r border-slate-300 px-2 text-left text-[9px] font-bold uppercase tracking-wide text-slate-600">
                     Date
